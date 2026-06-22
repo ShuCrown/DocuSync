@@ -5,16 +5,21 @@ compatibility_flags = ["nodejs_compat"]
 # Cloudflare Pages 配置
 pages_build_output_dir = "./dist"
 
-# R2 存储桶绑定（需要先在 Cloudflare Dashboard 创建）
-# [[r2_buckets]]
-# binding = "FILES_BUCKET"
-# bucket_name = "docusync-files"
+# R2 存储桶绑定
+[[r2_buckets]]
+binding = "FILES_BUCKET"
+bucket_name = "docusync-files"
 
 # Workers AI 绑定
-# [ai]
-# binding = "AI"
+[ai]
+binding = "AI"
 
-# KV 命名空间绑定（用于缓存摘要结果）
+# KV 命名空间绑定（用于缓存摘要结果，可选）
 # [[kv_namespaces]]
 # binding = "CACHE_KV"
 # id = "your-kv-namespace-id"
+
+# Observability
+[observability.logs]
+enabled = true
+invocation_logs = true
