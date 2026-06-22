@@ -6,13 +6,13 @@ compatibility_flags = ["nodejs_compat"]
 # R2 存储桶绑定
 [[r2_buckets]]
 binding = "FILES_BUCKET"
-bucket_name = "$R2_BUCKET_NAME"
+bucket_name = "docusync-files"
 
 # D1 数据库绑定
 [[d1_databases]]
 binding = "DB"
-database_name = "$D1_DATABASE_NAME"
-database_id = "$D1_DATABASE_ID"
+database_name = "docusync-db"
+database_id = "ab33d5af-78d6-4e05-9944-d15c094e6531"
 
 # Workers AI 绑定
 [ai]
