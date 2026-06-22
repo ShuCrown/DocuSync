@@ -57,6 +57,15 @@ export async function deleteDocument(docId: string) {
   })
 }
 
+export async function downloadDocument(docId: string): Promise<Blob> {
+  const deviceId = getDeviceId()
+  const res = await fetch(`${BASE}/documents/${docId}/download?deviceId=${encodeURIComponent(deviceId)}`)
+  if (!res.ok) {
+    throw new Error(`Download failed: ${res.status}`)
+  }
+  return res.blob()
+}
+
 export async function summarizeDocument(docId: string, text?: string) {
   return request<{ summary: string; cached: boolean }>(`/documents/${docId}/summarize`, {
     method: 'POST',

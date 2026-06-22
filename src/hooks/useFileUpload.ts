@@ -42,15 +42,19 @@ export function useFileUpload() {
     }
   }, [])
 
-  const restoreFromRecord = useCallback((record: { id: string; name: string; category: FileCategory }) => {
-    // Create a placeholder for viewing history records
-    // The actual file content is not available client-side
-    setUploadedFile({
-      file: new File([], record.name),
-      category: record.category,
-      url: '',
-      docId: record.id,
-    })
+  const restoreFromRecord = useCallback(async (record: { id: string; name: string; category: FileCategory }) => {
+    setError(null)
+    setUploading(true)
+    try {
+      const blob = await api.downloadDocument(record.id)
+      const file = new File([blob], record.name, { type: blob.type })
+      const url = URL.createObjectURL(file)
+      setUploadedFile({ file, category: record.category, url, docId: record.id })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载历史文件失败')
+    } finally {
+      setUploading(false)
+    }
   }, [])
 
   const clearFile = useCallback(() => {

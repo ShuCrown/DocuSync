@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import * as mammoth from 'mammoth'
 import * as XLSX from 'xlsx'
+import DOMPurify from 'dompurify'
 import { Loader2 } from 'lucide-react'
 
 interface OfficeViewerProps {
@@ -91,7 +92,7 @@ export function OfficeViewer({ file, category, onTextExtracted }: OfficeViewerPr
     return (
       <div
         className="p-6 bg-surface-card rounded-lg border border-border shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-auto max-h-[70vh] prose prose-sm max-w-none"
-        dangerouslySetInnerHTML={{ __html: html }}
+        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }}
       />
     )
   }

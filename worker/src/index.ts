@@ -140,6 +140,35 @@ app.delete('/api/documents/:id', async (c) => {
   return c.json({ success: true })
 })
 
+// GET /api/documents/:id/download
+app.get('/api/documents/:id/download', async (c) => {
+  const docId = c.req.param('id')
+  const deviceId = c.req.query('deviceId')
+  if (!deviceId) {
+    return c.json({ error: 'deviceId required' }, 400)
+  }
+
+  const doc = await c.env.DB.prepare(
+    'SELECT r2_key, name FROM documents WHERE id = ? AND device_id = ?'
+  ).bind(docId, deviceId).first<{ r2_key: string; name: string }>()
+
+  if (!doc) {
+    return c.json({ error: 'Document not found' }, 404)
+  }
+
+  const obj = await c.env.FILES_BUCKET.get(doc.r2_key)
+  if (!obj) {
+    return c.json({ error: 'File not found in storage' }, 404)
+  }
+
+  return new Response(obj.body, {
+    headers: {
+      'Content-Type': obj.httpMetadata?.contentType ?? 'application/octet-stream',
+      'Content-Disposition': `inline; filename="${encodeURIComponent(doc.name)}"`,
+    },
+  })
+})
+
 // ============================================================
 // Summarize (with D1 cache)
 // ============================================================
@@ -237,7 +266,9 @@ const CODE_EXPIRY_SECONDS = 10 * 60
 const RATE_LIMIT_SECONDS = 60
 
 function generateCode(): string {
-  return String(Math.floor(100000 + Math.random() * 900000))
+  const arr = new Uint32Array(1)
+  crypto.getRandomValues(arr)
+  return String(100000 + (arr[0] % 900000))
 }
 
 function isValidEmail(email: string): boolean {

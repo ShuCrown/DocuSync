@@ -1,5 +1,6 @@
 import { FileText, Clock, X } from 'lucide-react'
 import { getCategoryLabel } from '../utils/fileType'
+import { formatTime } from '../utils/formatTime'
 import type { FileRecord } from '../hooks/useFileHistory'
 
 interface FileHistoryProps {
@@ -13,20 +14,6 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function formatTime(ts: number): string {
-  const now = Date.now()
-  const diff = now - ts
-  const min = 60 * 1000
-  const hour = 60 * min
-  const day = 24 * hour
-
-  if (diff < min) return '刚刚'
-  if (diff < hour) return `${Math.floor(diff / min)} 分钟前`
-  if (diff < day) return `${Math.floor(diff / hour)} 小时前`
-  if (diff < 7 * day) return `${Math.floor(diff / day)} 天前`
-  return new Date(ts).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
 }
 
 export function FileHistory({ history, onSelect, onRemove, onClear }: FileHistoryProps) {

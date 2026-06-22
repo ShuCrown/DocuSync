@@ -1,21 +1,29 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Layout } from './components/Layout'
 import { FileUpload } from './components/FileUpload'
 import { FileHistory } from './components/FileHistory'
 import { DocumentViewer } from './components/DocumentViewer'
 import { SummaryPanel } from './components/SummaryPanel'
+import { AccountPanel } from './components/AccountPanel'
 import { useFileUpload } from './hooks/useFileUpload'
 import { useFileHistory } from './hooks/useFileHistory'
 import { useSummary } from './hooks/useSummary'
+import { useAccount } from './hooks/useAccount'
 import type { FileRecord } from './hooks/useFileHistory'
 
 export default function App() {
   const { uploadedFile, error: uploadError, uploading, handleFile, restoreFromRecord, clearFile } = useFileUpload()
   const { summary, loading: summaryLoading, error: summaryError, summarize, loadCached, clear: clearSummary } = useSummary()
   const { history, addHistory, removeHistory, clearHistory } = useFileHistory()
+  const account = useAccount()
   const [extractedText, setExtractedText] = useState('')
   const [summaryOpen, setSummaryOpen] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [accountOpen, setAccountOpen] = useState(false)
+
+  // Check account status on mount
+  useEffect(() => {
+    account.checkStatus()
+  }, [])
 
   const handleTextExtracted = useCallback((text: string) => {
     setExtractedText(text)
@@ -52,7 +60,7 @@ export default function App() {
 
   const handleHistorySelect = useCallback(async (record: FileRecord) => {
     // Restore from history: show doc info, try to load cached summary
-    restoreFromRecord(record)
+    await restoreFromRecord(record)
     clearSummary()
     setExtractedText('')
     setSummaryOpen(false)
@@ -60,13 +68,13 @@ export default function App() {
     await loadCached(record.id)
   }, [restoreFromRecord, clearSummary, loadCached])
 
-  const handleFileInputChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      await handleFileWithHistory(file)
-    }
-    e.target.value = ''
-  }, [handleFileWithHistory])
+  const handleAccountOpen = useCallback(() => {
+    setAccountOpen(true)
+  }, [])
+
+  const handleAccountClose = useCallback(() => {
+    setAccountOpen(false)
+  }, [])
 
   return (
     <Layout
@@ -79,16 +87,9 @@ export default function App() {
       onSummaryToggle={uploadedFile ? handleSummaryToggle : undefined}
       summaryLoading={summaryLoading}
       hasSummary={!!summary}
+      email={account.email}
+      onAccountOpen={handleAccountOpen}
     >
-      {/* Hidden file input for re-upload */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        className="hidden"
-        onChange={handleFileInputChange}
-        accept=".pdf,.md,.markdown,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
-      />
-
       {!uploadedFile ? (
         <div className="max-w-2xl mx-auto">
           <FileUpload
@@ -122,6 +123,19 @@ export default function App() {
           onClose={handleSummaryClose}
         />
       )}
+
+      <AccountPanel
+        open={accountOpen}
+        onClose={handleAccountClose}
+        email={account.email}
+        loading={account.loading}
+        error={account.error}
+        onBind={account.bindEmail}
+        onVerify={account.verifyBind}
+        onSendRecoverCode={account.sendRecoverCode}
+        onRecover={account.recoverAccount}
+        onUnbind={account.unbindEmail}
+      />
     </Layout>
   )
 }

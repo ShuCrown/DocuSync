@@ -1,6 +1,7 @@
-import { FileText, ExternalLink, ArrowLeft, Clock, Sparkles, Loader2, X } from 'lucide-react'
+import { FileText, ExternalLink, ArrowLeft, Clock, Sparkles, Loader2, X, User } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { getCategoryLabel } from '../utils/fileType'
+import { formatTime } from '../utils/formatTime'
 import type { FileRecord } from '../hooks/useFileHistory'
 
 interface LayoutProps {
@@ -14,19 +15,8 @@ interface LayoutProps {
   onSummaryToggle?: () => void
   summaryLoading?: boolean
   hasSummary?: boolean
-}
-
-function formatTime(ts: number): string {
-  const now = Date.now()
-  const diff = now - ts
-  const min = 60 * 1000
-  const hour = 60 * min
-  const day = 24 * hour
-  if (diff < min) return '刚刚'
-  if (diff < hour) return `${Math.floor(diff / min)} 分钟前`
-  if (diff < day) return `${Math.floor(diff / hour)} 小时前`
-  if (diff < 7 * day) return `${Math.floor(diff / day)} 天前`
-  return new Date(ts).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
+  email?: string | null
+  onAccountOpen?: () => void
 }
 
 export function Layout({
@@ -40,6 +30,8 @@ export function Layout({
   onSummaryToggle,
   summaryLoading,
   hasSummary,
+  email,
+  onAccountOpen,
 }: LayoutProps) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const historyRef = useRef<HTMLDivElement>(null)
@@ -178,12 +170,28 @@ export function Layout({
               </div>
             )}
 
+            {/* Account button */}
+            {onAccountOpen && (
+              <button
+                onClick={onAccountOpen}
+                className={`p-2 rounded-md transition-colors ${
+                  email
+                    ? 'text-primary hover:bg-primary/10'
+                    : 'text-text-secondary hover:text-text hover:bg-surface-alt/60'
+                }`}
+                title={email ? `已绑定: ${email}` : '账户管理'}
+              >
+                <User className="w-4.5 h-4.5" />
+              </button>
+            )}
+
             {/* GitHub link */}
             <a
-              href="https://github.com"
+              href="https://github.com/anthropics/claude-code"
               target="_blank"
               rel="noopener noreferrer"
               className="p-2 rounded-md text-text-secondary hover:text-text hover:bg-surface-alt/60 transition-colors"
+              title="GitHub"
             >
               <ExternalLink className="w-4 h-4" />
             </a>
