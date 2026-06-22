@@ -12,7 +12,7 @@ bucket_name = "docusync-files"
 [[d1_databases]]
 binding = "DB"
 database_name = "docusync-db"
-database_id = "ab33d5af-78d6-4e05-9944-d15c094e6531"
+database_id = "98ba906d-9656-48b3-90c2-840ee59a6cab"
 
 # Workers AI 绑定
 [ai]
