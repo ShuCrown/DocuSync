@@ -1,0 +1,18 @@
+name = "docusync-api"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# R2 存储桶绑定
+[[r2_buckets]]
+binding = "FILES_BUCKET"
+bucket_name = "docusync-files"
+
+# Workers AI 绑定
+[ai]
+binding = "AI"
+
+# Observability
+[observability.logs]
+enabled = true
+invocation_logs = true

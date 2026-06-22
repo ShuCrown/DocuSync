@@ -9,7 +9,10 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "pages:dev": "wrangler pages dev",
-    "pages:deploy": "wrangler pages deploy"
+    "pages:deploy": "wrangler pages deploy",
+    "worker:dev": "cd worker && wrangler dev",
+    "worker:deploy": "cd worker && wrangler deploy",
+    "deploy": "npm run worker:deploy && npm run pages:deploy"
   },
   "dependencies": {
     "highlight.js": "^11.11.1",
