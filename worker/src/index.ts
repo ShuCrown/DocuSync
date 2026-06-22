@@ -77,7 +77,7 @@ app.post('/api/summarize', async (c) => {
     ]
 
     const response = await c.env.AI.run(
-      '@cf/meta/llama-3-8b-instruct',
+      '@cf/meta/llama-3.2-3b-instruct',
       { messages, max_tokens: 1024 }
     )
 
