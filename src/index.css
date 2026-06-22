@@ -1,33 +1,27 @@
 @import "tailwindcss";
 
 @theme {
-  --color-primary: #6366f1;
-  --color-primary-light: #818cf8;
-  --color-primary-dark: #4f46e5;
-  --color-surface: #ffffff;
-  --color-surface-alt: #f8fafc;
-  --color-border: #e2e8f0;
-  --color-text: #1e293b;
-  --color-text-secondary: #64748b;
-  --color-success: #10b981;
-  --color-error: #ef4444;
-  --color-warning: #f59e0b;
-}
-
-@media (prefers-color-scheme: dark) {
-  @theme {
-    --color-surface: #0f172a;
-    --color-surface-alt: #1e293b;
-    --color-border: #334155;
-    --color-text: #f1f5f9;
-    --color-text-secondary: #94a3b8;
-  }
+  --color-primary: #1B365D;
+  --color-primary-light: #2A4A7F;
+  --color-primary-dark: #0F2240;
+  --color-surface: #f5f4ed;
+  --color-surface-alt: #ece9df;
+  --color-surface-card: #faf9f5;
+  --color-border: #d5d0c4;
+  --color-text: #2c2825;
+  --color-text-secondary: #7a7267;
+  --color-success: #3a7d5c;
+  --color-error: #b34242;
+  --color-warning: #a67c30;
 }
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: 'Charter', 'Bitstream Charter', 'Songti SC', 'Noto Serif CJK SC',
+    'Source Han Serif CN', 'Georgia', serif;
   -webkit-font-smoothing: antialiased;
+  background: var(--color-surface);
+  color: var(--color-text);
 }
 
 /* PDF viewer styles */
@@ -38,39 +32,51 @@ body {
 
 /* Markdown content styles */
 .markdown-body {
-  line-height: 1.7;
+  line-height: 1.65;
   font-size: 15px;
 }
 
 .markdown-body h1,
 .markdown-body h2,
 .markdown-body h3 {
-  margin-top: 1.5em;
+  margin-top: 1.6em;
   margin-bottom: 0.5em;
-  font-weight: 600;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.markdown-body h1 { font-size: 1.6em; }
+.markdown-body h2 { font-size: 1.35em; }
+.markdown-body h3 { font-size: 1.15em; }
+
+.markdown-body p {
+  margin-bottom: 1em;
 }
 
 .markdown-body pre {
   background: var(--color-surface-alt);
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 16px;
   overflow-x: auto;
+  border: 1px solid var(--color-border);
 }
 
 .markdown-body code {
-  font-size: 0.9em;
+  font-size: 0.88em;
+  font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
 }
 
 .markdown-body img {
   max-width: 100%;
-  border-radius: 8px;
+  border-radius: 6px;
 }
 
 .markdown-body blockquote {
-  border-left: 4px solid var(--color-primary);
+  border-left: 3px solid var(--color-primary);
   padding-left: 16px;
   margin-left: 0;
   color: var(--color-text-secondary);
+  font-style: italic;
 }
 
 .markdown-body table {
@@ -87,10 +93,22 @@ body {
 
 .markdown-body th {
   background: var(--color-surface-alt);
+  font-weight: 500;
 }
 
 /* highlight.js overrides */
 .hljs {
   background: transparent !important;
   padding: 0 !important;
+}
+
+/* Prose overrides for warm tone */
+.prose {
+  --tw-prose-body: var(--color-text);
+  --tw-prose-headings: var(--color-text);
+  --tw-prose-links: var(--color-primary);
+  --tw-prose-bold: var(--color-text);
+  --tw-prose-code: var(--color-primary-dark);
+  --tw-prose-quotes: var(--color-text-secondary);
+  --tw-prose-quote-borders: var(--color-primary);
 }

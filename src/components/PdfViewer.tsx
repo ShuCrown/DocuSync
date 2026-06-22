@@ -89,30 +89,30 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
   return (
     <div className="flex flex-col items-center">
       {/* Toolbar */}
-      <div className="flex items-center gap-3 mb-4 p-2 bg-surface-alt rounded-lg border border-border">
-        <button onClick={prev} disabled={pageNum <= 1} className="p-1 disabled:opacity-30 hover:text-primary">
+      <div className="flex items-center gap-3 mb-4 p-2 bg-surface-card rounded-lg border border-border shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+        <button onClick={prev} disabled={pageNum <= 1} className="p-1 disabled:opacity-30 hover:text-primary transition-colors">
           <ChevronLeft className="w-5 h-5" />
         </button>
-        <span className="text-sm text-text-secondary min-w-[80px] text-center">
+        <span className="text-sm text-text-secondary min-w-[80px] text-center tabular-nums">
           {pageNum} / {totalPages}
         </span>
-        <button onClick={next} disabled={pageNum >= totalPages} className="p-1 disabled:opacity-30 hover:text-primary">
+        <button onClick={next} disabled={pageNum >= totalPages} className="p-1 disabled:opacity-30 hover:text-primary transition-colors">
           <ChevronRight className="w-5 h-5" />
         </button>
         <div className="w-px h-5 bg-border mx-1" />
-        <button onClick={zoomOut} className="p-1 hover:text-primary">
+        <button onClick={zoomOut} className="p-1 hover:text-primary transition-colors">
           <ZoomOut className="w-5 h-5" />
         </button>
-        <span className="text-sm text-text-secondary min-w-[48px] text-center">{Math.round(scale * 100)}%</span>
-        <button onClick={zoomIn} className="p-1 hover:text-primary">
+        <span className="text-sm text-text-secondary min-w-[48px] text-center tabular-nums">{Math.round(scale * 100)}%</span>
+        <button onClick={zoomIn} className="p-1 hover:text-primary transition-colors">
           <ZoomIn className="w-5 h-5" />
         </button>
       </div>
 
       {/* Canvas */}
-      <div className="relative overflow-auto max-h-[70vh] border border-border rounded-lg bg-white">
+      <div className="relative overflow-auto max-h-[70vh] border border-border rounded-lg bg-white shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
         {rendering && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/60 z-10">
+          <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10">
             <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
           </div>
         )}

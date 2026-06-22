@@ -1,17 +1,20 @@
 import { useState, useCallback } from 'react'
 import { getFileCategory, isSupported, type FileCategory } from '../utils/fileType'
+import * as api from '../lib/api'
 
 export interface UploadedFile {
   file: File
   category: FileCategory
   url: string // object URL for preview
+  docId: string // server document ID
 }
 
 export function useFileUpload() {
   const [uploadedFile, setUploadedFile] = useState<UploadedFile | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
 
-  const handleFile = useCallback((file: File) => {
+  const handleFile = useCallback(async (file: File, extractedText?: string) => {
     setError(null)
 
     if (!isSupported(file)) {
@@ -26,7 +29,28 @@ export function useFileUpload() {
 
     const category = getFileCategory(file)
     const url = URL.createObjectURL(file)
-    setUploadedFile({ file, category, url })
+
+    try {
+      setUploading(true)
+      const result = await api.uploadDocument(file, extractedText)
+      setUploadedFile({ file, category, url, docId: result.id })
+    } catch (err) {
+      URL.revokeObjectURL(url)
+      setError(err instanceof Error ? err.message : '上传失败')
+    } finally {
+      setUploading(false)
+    }
+  }, [])
+
+  const restoreFromRecord = useCallback((record: { id: string; name: string; category: FileCategory }) => {
+    // Create a placeholder for viewing history records
+    // The actual file content is not available client-side
+    setUploadedFile({
+      file: new File([], record.name),
+      category: record.category,
+      url: '',
+      docId: record.id,
+    })
   }, [])
 
   const clearFile = useCallback(() => {
@@ -37,5 +61,5 @@ export function useFileUpload() {
     setError(null)
   }, [uploadedFile])
 
-  return { uploadedFile, error, handleFile, clearFile }
+  return { uploadedFile, error, uploading, handleFile, restoreFromRecord, clearFile }
 }

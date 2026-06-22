@@ -29,7 +29,7 @@ export function DocumentViewer({ uploaded, onTextExtracted }: DocumentViewerProp
 
     default:
       return (
-        <div className="flex items-center gap-2 p-6 text-error bg-error/5 rounded-xl border border-error/20">
+        <div className="flex items-center gap-2 p-6 text-error bg-error/5 rounded-lg border border-error/10">
           <AlertCircle className="w-5 h-5 shrink-0" />
           <span>不支持预览此文件格式</span>
         </div>

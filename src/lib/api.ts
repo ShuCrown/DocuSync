@@ -1,0 +1,122 @@
+import { getDeviceId } from './device-id'
+
+const BASE = '/api'
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, init)
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(body.error ?? `Request failed: ${res.status}`)
+  }
+  return res.json()
+}
+
+// Device
+export async function registerDevice() {
+  const deviceId = getDeviceId()
+  return request<{ deviceId: string; email: string | null }>('/device/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deviceId }),
+  })
+}
+
+// Documents
+export interface DocumentRecord {
+  id: string
+  name: string
+  size: number
+  category: string
+  created_at: number
+}
+
+export async function uploadDocument(file: File, extractedText?: string) {
+  const deviceId = getDeviceId()
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('deviceId', deviceId)
+  if (extractedText) {
+    formData.append('extractedText', extractedText)
+  }
+
+  return request<{ id: string; name: string; size: number; category: string; r2Key: string }>(
+    '/documents/upload',
+    { method: 'POST', body: formData }
+  )
+}
+
+export async function listDocuments() {
+  const deviceId = getDeviceId()
+  return request<DocumentRecord[]>(`/documents?deviceId=${encodeURIComponent(deviceId)}`)
+}
+
+export async function deleteDocument(docId: string) {
+  const deviceId = getDeviceId()
+  return request<{ success: true }>(`/documents/${docId}?deviceId=${encodeURIComponent(deviceId)}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function summarizeDocument(docId: string, text?: string) {
+  return request<{ summary: string; cached: boolean }>(`/documents/${docId}/summarize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  })
+}
+
+export async function getSummary(docId: string) {
+  return request<{ summary: string | null; model?: string; createdAt?: number }>(
+    `/documents/${docId}/summary`
+  )
+}
+
+// Account
+export async function bindEmail(email: string) {
+  const deviceId = getDeviceId()
+  return request<{ message: string; cooldown?: number }>('/account/bind', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deviceId, email }),
+  })
+}
+
+export async function verifyBind(email: string, code: string) {
+  const deviceId = getDeviceId()
+  return request<{ success: true; email: string }>('/account/bind/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deviceId, email, code }),
+  })
+}
+
+export async function sendRecoverCode(email: string) {
+  return request<{ message: string; cooldown?: number }>('/account/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  })
+}
+
+export async function recoverAccount(email: string, code: string) {
+  const deviceId = getDeviceId()
+  return request<{ devices: string[]; documents: DocumentRecord[] }>('/account/recover', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deviceId, email, code }),
+  })
+}
+
+export async function getAccountInfo() {
+  const deviceId = getDeviceId()
+  return request<{ email: string | null }>(`/account/info?deviceId=${encodeURIComponent(deviceId)}`)
+}
+
+export async function unbindEmail() {
+  const deviceId = getDeviceId()
+  return request<{ success: true }>('/account/unbind', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deviceId }),
+  })
+}

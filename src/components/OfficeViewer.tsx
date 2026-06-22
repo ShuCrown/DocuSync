@@ -81,7 +81,7 @@ export function OfficeViewer({ file, category, onTextExtracted }: OfficeViewerPr
 
   if (error) {
     return (
-      <div className="p-6 text-center text-error bg-error/5 rounded-xl border border-error/20">
+      <div className="p-6 text-center text-error bg-error/5 rounded-lg border border-error/10">
         {error}
       </div>
     )
@@ -90,7 +90,7 @@ export function OfficeViewer({ file, category, onTextExtracted }: OfficeViewerPr
   if (category === 'word' || category === 'powerpoint') {
     return (
       <div
-        className="p-6 bg-surface rounded-xl border border-border overflow-auto max-h-[70vh] prose prose-sm max-w-none"
+        className="p-6 bg-surface-card rounded-lg border border-border shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-auto max-h-[70vh] prose prose-sm max-w-none"
         dangerouslySetInnerHTML={{ __html: html }}
       />
     )
@@ -98,10 +98,10 @@ export function OfficeViewer({ file, category, onTextExtracted }: OfficeViewerPr
 
   // Excel: render tables
   return (
-    <div className="p-4 bg-surface rounded-xl border border-border overflow-auto max-h-[70vh]">
+    <div className="p-4 bg-surface-card rounded-lg border border-border shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-auto max-h-[70vh]">
       {sheetNames.map((name, idx) => (
         <div key={name} className="mb-6 last:mb-0">
-          <h3 className="text-sm font-semibold text-text mb-2 px-2">{name}</h3>
+          <h3 className="text-sm font-medium text-text mb-2 px-2">{name}</h3>
           <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
               <tbody>
