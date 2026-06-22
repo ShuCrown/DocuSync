@@ -12,7 +12,7 @@ bucket_name = "docusync-files"
 [[d1_databases]]
 binding = "DB"
 database_name = "docusync-db"
-database_id = "placeholder-run-wrangler-d1-create-to-get-id"
+database_id = "ab33d5af-78d6-4e05-9944-d15c094e6531"
 
 # Workers AI 绑定
 [ai]
