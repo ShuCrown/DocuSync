@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
+import { Loader2 } from 'lucide-react'
 import { Layout } from './components/Layout'
 import { FileUpload } from './components/FileUpload'
 import { FileHistory } from './components/FileHistory'
@@ -12,7 +13,7 @@ import { useAccount } from './hooks/useAccount'
 import type { FileRecord } from './hooks/useFileHistory'
 
 export default function App() {
-  const { uploadedFile, error: uploadError, uploading, handleFile, restoreFromRecord, clearFile } = useFileUpload()
+  const { uploadedFile, error: uploadError, uploading, downloading, downloadProgress, handleFile, restoreFromRecord, clearFile } = useFileUpload()
   const { summary, loading: summaryLoading, error: summaryError, summarize, loadCached, clear: clearSummary } = useSummary()
   const { history, addHistory, removeHistory, clearHistory } = useFileHistory()
   const account = useAccount()
@@ -122,6 +123,29 @@ export default function App() {
           open={summaryOpen}
           onClose={handleSummaryClose}
         />
+      )}
+
+      {/* Download loading overlay */}
+      {downloading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+          <div className="bg-surface-card rounded-xl p-6 shadow-xl flex flex-col items-center gap-3 min-w-[240px]">
+            <Loader2 className="w-8 h-8 text-primary animate-spin" />
+            <div className="text-sm text-text font-medium">正在下载文件...</div>
+            {downloadProgress !== null && (
+              <div className="w-full">
+                <div className="h-1.5 bg-surface-alt rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all duration-300"
+                    style={{ width: `${downloadProgress}%` }}
+                  />
+                </div>
+                <div className="text-xs text-text-secondary text-center mt-1">
+                  {downloadProgress}%
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       <AccountPanel

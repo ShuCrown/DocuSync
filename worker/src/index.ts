@@ -165,6 +165,7 @@ app.get('/api/documents/:id/download', async (c) => {
     headers: {
       'Content-Type': obj.httpMetadata?.contentType ?? 'application/octet-stream',
       'Content-Disposition': `inline; filename="${encodeURIComponent(doc.name)}"`,
+      'Content-Length': String(obj.size),
     },
   })
 })

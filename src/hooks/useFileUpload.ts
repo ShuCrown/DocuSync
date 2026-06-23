@@ -13,6 +13,8 @@ export function useFileUpload() {
   const [uploadedFile, setUploadedFile] = useState<UploadedFile | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [downloading, setDownloading] = useState(false)
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null)
 
   const handleFile = useCallback(async (file: File, extractedText?: string) => {
     setError(null)
@@ -44,16 +46,26 @@ export function useFileUpload() {
 
   const restoreFromRecord = useCallback(async (record: { id: string; name: string; category: FileCategory }) => {
     setError(null)
-    setUploading(true)
+    setDownloading(true)
+    setDownloadProgress(null)
     try {
-      const blob = await api.downloadDocument(record.id)
+      const blob = await api.downloadDocument(record.id, (loaded, total) => {
+        if (total > 0) {
+          setDownloadProgress(Math.round((loaded / total) * 100))
+        }
+      })
+      if (blob.size === 0) {
+        setError('文件下载失败，内容为空')
+        return
+      }
       const file = new File([blob], record.name, { type: blob.type })
       const url = URL.createObjectURL(file)
       setUploadedFile({ file, category: record.category, url, docId: record.id })
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载历史文件失败')
     } finally {
-      setUploading(false)
+      setDownloading(false)
+      setDownloadProgress(null)
     }
   }, [])
 
@@ -65,5 +77,5 @@ export function useFileUpload() {
     setError(null)
   }, [uploadedFile])
 
-  return { uploadedFile, error, uploading, handleFile, restoreFromRecord, clearFile }
+  return { uploadedFile, error, uploading, downloading, downloadProgress, handleFile, restoreFromRecord, clearFile }
 }

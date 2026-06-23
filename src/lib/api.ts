@@ -57,13 +57,34 @@ export async function deleteDocument(docId: string) {
   })
 }
 
-export async function downloadDocument(docId: string): Promise<Blob> {
+export async function downloadDocument(
+  docId: string,
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<Blob> {
   const deviceId = getDeviceId()
   const res = await fetch(`${BASE}/documents/${docId}/download?deviceId=${encodeURIComponent(deviceId)}`)
   if (!res.ok) {
     throw new Error(`Download failed: ${res.status}`)
   }
-  return res.blob()
+
+  if (!res.body) {
+    return res.blob()
+  }
+
+  const contentLength = Number(res.headers.get('Content-Length')) || 0
+  const reader = res.body.getReader()
+  const chunks: Uint8Array[] = []
+  let loaded = 0
+
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    chunks.push(value)
+    loaded += value.length
+    onProgress?.(loaded, contentLength)
+  }
+
+  return new Blob(chunks as BlobPart[], { type: res.headers.get('Content-Type') ?? 'application/octet-stream' })
 }
 
 export async function summarizeDocument(docId: string, text?: string) {
