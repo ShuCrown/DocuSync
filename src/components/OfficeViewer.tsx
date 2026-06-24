@@ -91,7 +91,7 @@ export function OfficeViewer({ file, category, onTextExtracted }: OfficeViewerPr
   if (category === 'word' || category === 'powerpoint') {
     return (
       <div
-        className="p-6 bg-surface-card rounded-lg border border-border shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-auto max-h-[70vh] prose prose-sm max-w-none"
+        className="p-6 bg-surface-card overflow-auto h-full prose prose-sm max-w-none"
         dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }}
       />
     )
@@ -99,7 +99,7 @@ export function OfficeViewer({ file, category, onTextExtracted }: OfficeViewerPr
 
   // Excel: render tables
   return (
-    <div className="p-4 bg-surface-card rounded-lg border border-border shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-auto max-h-[70vh]">
+    <div className="p-4 bg-surface-card overflow-auto h-full">
       {sheetNames.map((name, idx) => (
         <div key={name} className="mb-6 last:mb-0">
           <h3 className="text-sm font-medium text-text mb-2 px-2">{name}</h3>

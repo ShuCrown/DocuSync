@@ -9,9 +9,10 @@ interface FileUploadProps {
   onClear?: () => void
   uploading?: boolean
   error?: string | null
+  compact?: boolean
 }
 
-export function FileUpload({ onFile, currentFile, onClear, uploading, error }: FileUploadProps) {
+export function FileUpload({ onFile, currentFile, onClear, uploading, error, compact }: FileUploadProps) {
   const onDrop = useCallback(
     (accepted: File[]) => {
       if (accepted.length > 0) {
@@ -54,6 +55,39 @@ export function FileUpload({ onFile, currentFile, onClear, uploading, error }: F
           >
             <X className="w-4 h-4" />
           </button>
+        )}
+      </div>
+    )
+  }
+
+  if (compact) {
+    return (
+      <div>
+        <div
+          {...getRootProps()}
+          className={`
+            border border-dashed rounded-lg p-4 text-center cursor-pointer transition-all
+            ${uploading ? 'opacity-60 pointer-events-none' : ''}
+            ${isDragActive
+              ? 'border-primary bg-primary/[0.03]'
+              : 'border-border hover:border-primary-light hover:bg-surface-card/60'
+            }
+          `}
+        >
+          <input {...getInputProps()} />
+          {uploading ? (
+            <Loader2 className="w-5 h-5 mx-auto text-primary animate-spin" />
+          ) : (
+            <>
+              <Upload className="w-5 h-5 mx-auto mb-1.5 text-text-secondary/70" />
+              <p className="text-xs text-text font-medium">
+                {isDragActive ? '释放文件' : '上传新文件'}
+              </p>
+            </>
+          )}
+        </div>
+        {error && (
+          <p className="mt-1.5 text-xs text-error">{error}</p>
         )}
       </div>
     )

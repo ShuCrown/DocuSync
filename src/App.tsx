@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Layout } from './components/Layout'
 import { FileUpload } from './components/FileUpload'
@@ -6,35 +6,95 @@ import { FileHistory } from './components/FileHistory'
 import { DocumentViewer } from './components/DocumentViewer'
 import { SummaryPanel } from './components/SummaryPanel'
 import { AccountPanel } from './components/AccountPanel'
+import { SplitPane } from './components/SplitPane'
+import { PaneHeader } from './components/PaneHeader'
+import { SplitPickerPopover } from './components/SplitPickerPopover'
 import { useFileUpload } from './hooks/useFileUpload'
 import { useFileHistory } from './hooks/useFileHistory'
 import { useSummary } from './hooks/useSummary'
 import { useAccount } from './hooks/useAccount'
+import { useSplitView } from './hooks/useSplitView'
+import { useScrollPosition, findScrollable } from './hooks/useScrollPosition'
+import { getFileCategory, isSupported } from './utils/fileType'
+import * as api from './lib/api'
 import type { FileRecord } from './hooks/useFileHistory'
+import type { UploadedFile } from './hooks/useFileUpload'
 
 export default function App() {
   const { uploadedFile, error: uploadError, uploading, downloading, downloadProgress, handleFile, restoreFromRecord, clearFile } = useFileUpload()
   const { summary, loading: summaryLoading, error: summaryError, summarize, loadCached, clear: clearSummary } = useSummary()
   const { history, addHistory, removeHistory, clearHistory } = useFileHistory()
   const account = useAccount()
+  const {
+    mode: splitMode, direction: splitDirection, activePane,
+    paneA, paneB, splitRatio, pickerOpen,
+    openPicker, closePicker, enterSplit, exitSplit,
+    closePaneA, closePaneB, swapPanes,
+    setActivePane, toggleDirection, setSplitRatio, setPaneA,
+  } = useSplitView()
+  const paneBRef = useRef(paneB)
   const [extractedText, setExtractedText] = useState('')
   const [summaryOpen, setSummaryOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
+  const splitButtonRef = useRef<HTMLElement | null>(null)
+  const singleScrollRef = useRef<HTMLDivElement | null>(null)
+  const initialPaneAPos = useRef<{ x: number; y: number } | null>(null)
+
+  useEffect(() => {
+    paneBRef.current = paneB
+  }, [paneB])
+
+  // Capture single-viewer scroll position before entering split mode.
+  const captureSingleScroll = useCallback(() => {
+    const wrapper = singleScrollRef.current
+    if (!wrapper) return
+    const el = findScrollable(wrapper) ?? wrapper
+    const maxY = el.scrollHeight - el.clientHeight
+    const maxX = el.scrollWidth - el.clientWidth
+    initialPaneAPos.current = {
+      x: maxX > 0 ? el.scrollLeft / maxX : 0,
+      y: maxY > 0 ? el.scrollTop / maxY : 0,
+    }
+  }, [])
 
   // Check account status on mount
   useEffect(() => {
     account.checkStatus()
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleTextExtracted = useCallback((text: string) => {
     setExtractedText(text)
   }, [])
 
+  // Get the active file based on which pane is active
+  const activeFile = activePane === 'b' && paneB ? paneB : paneA
+
   const handleSummarize = useCallback(() => {
-    if (uploadedFile?.docId) {
-      summarize(uploadedFile.docId, extractedText)
+    const docId = activeFile?.docId
+    if (docId) {
+      summarize(docId, extractedText)
     }
-  }, [summarize, uploadedFile, extractedText])
+  }, [summarize, activeFile, extractedText])
+
+  // Stable pane callbacks using refs to avoid stale closures while keeping references stable
+  const handlePaneAClose = useCallback(() => {
+    if (paneBRef.current) {
+      setPaneA(paneBRef.current)
+    }
+    closePaneA()
+  }, [closePaneA, setPaneA])
+
+  const handlePaneBClose = useCallback(() => {
+    closePaneB()
+  }, [closePaneB])
+
+  const handleReplacePaneB = useCallback(() => {
+    openPicker()
+  }, [openPicker])
+
+  const handlePaneFocus = useCallback((pane: 'a' | 'b') => {
+    setActivePane(pane)
+  }, [setActivePane])
 
   const handleSummaryToggle = useCallback(() => {
     setSummaryOpen((v) => !v)
@@ -44,28 +104,37 @@ export default function App() {
     setSummaryOpen(false)
   }, [])
 
+  // Sync uploadedFile to paneA
+  useEffect(() => {
+    if (uploadedFile && !paneA) {
+      setPaneA(uploadedFile)
+    }
+  }, [uploadedFile]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleFileWithHistory = useCallback(async (file: File) => {
     await handleFile(file)
-    addHistory(file, 'unknown') // triggers refresh
+    addHistory(file, 'unknown')
     clearSummary()
     setExtractedText('')
     setSummaryOpen(false)
   }, [handleFile, addHistory, clearSummary])
 
   const handleClear = useCallback(() => {
+    if (splitMode === 'split') {
+      exitSplit()
+    }
     clearFile()
+    setPaneA(null)
     clearSummary()
     setExtractedText('')
     setSummaryOpen(false)
-  }, [clearFile, clearSummary])
+  }, [clearFile, clearSummary, splitMode, exitSplit, setPaneA])
 
   const handleHistorySelect = useCallback(async (record: FileRecord) => {
-    // Restore from history: show doc info, try to load cached summary
     await restoreFromRecord(record)
     clearSummary()
     setExtractedText('')
     setSummaryOpen(false)
-    // Try loading cached summary
     await loadCached(record.id)
   }, [restoreFromRecord, clearSummary, loadCached])
 
@@ -77,49 +146,163 @@ export default function App() {
     setAccountOpen(false)
   }, [])
 
+  // Split view handlers
+  const handleSplitToggle = useCallback(() => {
+    if (splitMode === 'split') {
+      exitSplit()
+    } else {
+      openPicker()
+    }
+  }, [splitMode, exitSplit, openPicker])
+
+  const handlePickerSelect = useCallback((fileB: UploadedFile) => {
+    captureSingleScroll()
+    if (!paneA && uploadedFile) {
+      setPaneA(uploadedFile)
+    }
+    enterSplit(fileB)
+  }, [paneA, uploadedFile, setPaneA, enterSplit, captureSingleScroll])
+
+  const handlePickerUpload = useCallback(async (file: File) => {
+    if (!isSupported(file)) return
+
+    const category = getFileCategory(file)
+    const url = URL.createObjectURL(file)
+    try {
+      const result = await api.uploadDocument(file)
+      const uploadedB: UploadedFile = { file, category, url, docId: result.id }
+      captureSingleScroll()
+      if (!paneA && uploadedFile) {
+        setPaneA(uploadedFile)
+      }
+      enterSplit(uploadedB)
+      addHistory(file, 'unknown')
+    } catch {
+      URL.revokeObjectURL(url)
+    }
+  }, [paneA, uploadedFile, setPaneA, enterSplit, addHistory, captureSingleScroll])
+
+  const isSplit = splitMode === 'split' && paneA && paneB
+
+  // Scroll position tracking — key by document identity so position follows the document on swap.
+  const paneAScrollRef = useScrollPosition(
+    paneA ? (paneA.docId ?? paneA.file.name) : null,
+    initialPaneAPos.current, // eslint-disable-line react-hooks/refs -- stable ref, read once per mount
+  )
+  const paneBScrollRef = useScrollPosition(
+    paneB ? (paneB.docId ?? paneB.file.name) : null,
+  )
+  const singleFile = paneA ?? uploadedFile
+  const singleScrollPositionRef = useScrollPosition(
+    singleFile ? (singleFile.docId ?? singleFile.file.name) : null,
+  )
+  const handleSingleScrollRef = useCallback((el: HTMLDivElement | null) => {
+    singleScrollRef.current = el
+    singleScrollPositionRef(el)
+  }, [singleScrollPositionRef])
+
+  // Memoize pane elements to prevent unmount/remount on layout direction change.
+  // Only depend on pane data and stable callbacks, NOT on direction/splitRatio.
+  const paneAElement = useMemo(() => (
+    <div className="h-full flex flex-col">
+      <PaneHeader
+        file={paneA!}
+        pane="a"
+        isActive={activePane === 'a'}
+        onClose={handlePaneAClose}
+        onFocus={handlePaneFocus}
+      />
+      <div ref={paneAScrollRef} className="flex-1 overflow-auto">
+        <DocumentViewer
+          uploaded={paneA!}
+          onTextExtracted={activePane === 'a' ? handleTextExtracted : () => {}}
+        />
+      </div>
+    </div>
+  ), [paneA, activePane, handlePaneAClose, handlePaneFocus, handleTextExtracted, paneAScrollRef])
+
+  const paneBElement = useMemo(() => (
+    <div className="h-full flex flex-col">
+      <PaneHeader
+        file={paneB!}
+        pane="b"
+        isActive={activePane === 'b'}
+        onClose={handlePaneBClose}
+        onReplace={handleReplacePaneB}
+        onFocus={handlePaneFocus}
+      />
+      <div ref={paneBScrollRef} className="flex-1 overflow-auto">
+        <DocumentViewer
+          uploaded={paneB!}
+          onTextExtracted={activePane === 'b' ? handleTextExtracted : () => {}}
+        />
+      </div>
+    </div>
+  ), [paneB, activePane, handlePaneBClose, handleReplacePaneB, handlePaneFocus, handleTextExtracted, paneBScrollRef])
+
   return (
     <Layout
-      currentFileName={uploadedFile?.file.name ?? null}
+      currentFileName={paneA?.file.name ?? uploadedFile?.file.name ?? null}
       onBack={handleClear}
       history={history}
       onHistorySelect={handleHistorySelect}
       onHistoryRemove={removeHistory}
       onHistoryClear={clearHistory}
-      onSummaryToggle={uploadedFile ? handleSummaryToggle : undefined}
+      onSummaryToggle={activeFile ? handleSummaryToggle : undefined}
       summaryLoading={summaryLoading}
       hasSummary={!!summary}
       email={account.email}
       onAccountOpen={handleAccountOpen}
+      splitMode={splitMode}
+      splitDirection={splitDirection}
+      splitFileName={paneB?.file.name ?? null}
+      onSplitToggle={handleSplitToggle}
+      onDirectionToggle={toggleDirection}
+      splitButtonRef={splitButtonRef}
     >
-      {!uploadedFile ? (
-        <div className="max-w-2xl mx-auto">
-          <FileUpload
-            onFile={handleFileWithHistory}
-            currentFile={null}
-            uploading={uploading}
-            error={uploadError}
-          />
-          <FileHistory
-            history={history}
-            onSelect={handleHistorySelect}
-            onRemove={removeHistory}
-            onClear={clearHistory}
+      {!paneA && !uploadedFile ? (
+        <div className="flex-1 flex items-start justify-center px-4 sm:px-6 py-12">
+          <div className="w-full max-w-2xl">
+            <FileUpload
+              onFile={handleFileWithHistory}
+              currentFile={null}
+              uploading={uploading}
+              error={uploadError}
+            />
+            <FileHistory
+              history={history}
+              onSelect={handleHistorySelect}
+              onRemove={removeHistory}
+              onClear={clearHistory}
+            />
+          </div>
+        </div>
+      ) : isSplit ? (
+        <SplitPane
+          direction={splitDirection}
+          splitRatio={splitRatio}
+          onSplitRatioChange={setSplitRatio}
+          onSwap={swapPanes}
+          onDirectionChange={toggleDirection}
+          paneA={paneAElement}
+          paneB={paneBElement}
+        />
+      ) : (
+        <div ref={handleSingleScrollRef} className="flex-1 overflow-auto">
+          <DocumentViewer
+            uploaded={singleFile!}
+            onTextExtracted={handleTextExtracted}
           />
         </div>
-      ) : (
-        <DocumentViewer
-          uploaded={uploadedFile}
-          onTextExtracted={handleTextExtracted}
-        />
       )}
 
-      {uploadedFile && (
+      {activeFile && (
         <SummaryPanel
           summary={summary}
           loading={summaryLoading}
           error={summaryError}
           onSummarize={handleSummarize}
-          hasText={extractedText.length > 0 || !!uploadedFile?.docId}
+          hasText={extractedText.length > 0 || !!activeFile?.docId}
           open={summaryOpen}
           onClose={handleSummaryClose}
         />
@@ -130,7 +313,7 @@ export default function App() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
           <div className="bg-surface-card rounded-xl p-6 shadow-xl flex flex-col items-center gap-3 min-w-[240px]">
             <Loader2 className="w-8 h-8 text-primary animate-spin" />
-            <div className="text-sm text-text font-medium">正在下载文件...</div>
+            <div className="text-sm text-text font-medium">加载中</div>
             {downloadProgress !== null && (
               <div className="w-full">
                 <div className="h-1.5 bg-surface-alt rounded-full overflow-hidden">
@@ -147,6 +330,16 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Split picker popover */}
+      <SplitPickerPopover
+        open={pickerOpen}
+        onClose={closePicker}
+        history={history}
+        onSelect={handlePickerSelect}
+        onUpload={handlePickerUpload}
+        anchorRef={splitButtonRef}
+      />
 
       <AccountPanel
         open={accountOpen}

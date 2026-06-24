@@ -60,6 +60,7 @@ export async function deleteDocument(docId: string) {
 export async function downloadDocument(
   docId: string,
   onProgress?: (loaded: number, total: number) => void,
+  expectedSize?: number,
 ): Promise<Blob> {
   const deviceId = getDeviceId()
   const res = await fetch(`${BASE}/documents/${docId}/download?deviceId=${encodeURIComponent(deviceId)}`)
@@ -71,7 +72,8 @@ export async function downloadDocument(
     return res.blob()
   }
 
-  const contentLength = Number(res.headers.get('Content-Length')) || 0
+  // Use Content-Length header, fall back to expectedSize from document record
+  const contentLength = Number(res.headers.get('Content-Length')) || expectedSize || 0
   const reader = res.body.getReader()
   const chunks: Uint8Array[] = []
   let loaded = 0

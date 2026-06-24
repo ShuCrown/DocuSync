@@ -110,6 +110,11 @@ Pages Functions (`functions/api/[[path]].ts`) proxies all `/api/*` requests to t
 
 Uses the CSS-first configuration approach (no `tailwind.config.js`). Theme customization is in `src/index.css` via `@theme` blocks. The Vite plugin `@tailwindcss/vite` handles processing.
 
+## Code Conventions
+
+- **默认中文回复**：与用户的对话默认使用中文，代码注释和 commit message 保持英文。
+- **文件行数限制**：单个源文件不超过 300-400 行。超过时应拆分为多个模块、子组件或独立 hook，保持每个文件职责单一、易于维护。
+
 ## Development Notes
 
 - pdf.js worker is loaded from `node_modules` via import.meta.url — no separate worker file needed

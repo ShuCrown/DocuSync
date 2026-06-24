@@ -15,17 +15,27 @@ export function DocumentViewer({ uploaded, onTextExtracted }: DocumentViewerProp
 
   switch (category) {
     case 'pdf':
-      return <PdfViewer url={url} onTextExtracted={onTextExtracted} />
+      return (
+        <div className="h-full">
+          <PdfViewer url={url} onTextExtracted={onTextExtracted} />
+        </div>
+      )
 
     case 'markdown':
       return (
-        <MarkdownViewerWrapper file={file} onTextExtracted={onTextExtracted} />
+        <div className="h-full">
+          <MarkdownViewerWrapper file={file} onTextExtracted={onTextExtracted} />
+        </div>
       )
 
     case 'word':
     case 'excel':
     case 'powerpoint':
-      return <OfficeViewer file={file} category={category} onTextExtracted={onTextExtracted} />
+      return (
+        <div className="h-full">
+          <OfficeViewer file={file} category={category} onTextExtracted={onTextExtracted} />
+        </div>
+      )
 
     default:
       return (

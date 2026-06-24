@@ -1,8 +1,9 @@
-import { FileText, ExternalLink, ArrowLeft, Clock, Sparkles, Loader2, X, User } from 'lucide-react'
+import { FileText, ExternalLink, ArrowLeft, Clock, Sparkles, Loader2, X, User, Columns2, Rows2, Columns3 } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { getCategoryLabel } from '../utils/fileType'
 import { formatTime } from '../utils/formatTime'
 import type { FileRecord } from '../hooks/useFileHistory'
+import type { SplitDirection } from '../hooks/useSplitView'
 
 interface LayoutProps {
   children: React.ReactNode
@@ -17,6 +18,13 @@ interface LayoutProps {
   hasSummary?: boolean
   email?: string | null
   onAccountOpen?: () => void
+  // Split view props
+  splitMode?: 'single' | 'split'
+  splitDirection?: SplitDirection
+  splitFileName?: string | null
+  onSplitToggle?: () => void
+  onDirectionToggle?: () => void
+  splitButtonRef?: React.RefObject<HTMLElement | null>
 }
 
 export function Layout({
@@ -32,7 +40,14 @@ export function Layout({
   hasSummary,
   email,
   onAccountOpen,
+  splitMode,
+  splitDirection,
+  splitFileName,
+  onSplitToggle,
+  onDirectionToggle,
+  splitButtonRef,
 }: LayoutProps) {
+  const isSplit = splitMode === 'split'
   const [historyOpen, setHistoryOpen] = useState(false)
   const historyRef = useRef<HTMLDivElement>(null)
 
@@ -49,7 +64,7 @@ export function Layout({
   }, [historyOpen])
 
   return (
-    <div className="min-h-screen bg-surface flex flex-col">
+    <div className="h-screen bg-surface flex flex-col overflow-hidden">
       {/* Header */}
       <header className="border-b border-border bg-surface-card/80 backdrop-blur-sm relative z-30">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
@@ -64,10 +79,25 @@ export function Layout({
                 >
                   <ArrowLeft className="w-4.5 h-4.5" />
                 </button>
-                <FileText className="w-4.5 h-4.5 text-primary shrink-0" />
-                <span className="text-sm font-medium text-text truncate">
-                  {currentFileName}
-                </span>
+                {isSplit && splitFileName ? (
+                  <>
+                    <FileText className="w-4.5 h-4.5 text-primary shrink-0" />
+                    <span className="text-sm font-medium text-text truncate">
+                      {currentFileName}
+                    </span>
+                    <span className="text-xs text-text-secondary mx-0.5">↔</span>
+                    <span className="text-sm font-medium text-text truncate">
+                      {splitFileName}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <FileText className="w-4.5 h-4.5 text-primary shrink-0" />
+                    <span className="text-sm font-medium text-text truncate">
+                      {currentFileName}
+                    </span>
+                  </>
+                )}
               </>
             ) : (
               <div className="flex items-center gap-2.5">
@@ -79,6 +109,37 @@ export function Layout({
 
           {/* Right: actions */}
           <div className="flex items-center gap-1.5 shrink-0">
+            {/* Direction toggle (only in split mode) */}
+            {isSplit && onDirectionToggle && (
+              <button
+                onClick={onDirectionToggle}
+                className="p-2 rounded-md text-text-secondary hover:text-text hover:bg-surface-alt/60 transition-colors"
+                title={splitDirection === 'horizontal' ? '切换为上下布局' : '切换为左右布局'}
+              >
+                {splitDirection === 'horizontal' ? (
+                  <Rows2 className="w-4.5 h-4.5" />
+                ) : (
+                  <Columns3 className="w-4.5 h-4.5" />
+                )}
+              </button>
+            )}
+
+            {/* Split button (only when file is open) */}
+            {currentFileName && onSplitToggle && (
+              <button
+                ref={splitButtonRef as React.RefObject<HTMLButtonElement>}
+                onClick={onSplitToggle}
+                className={`p-2 rounded-md transition-colors ${
+                  isSplit
+                    ? 'text-primary bg-primary/10'
+                    : 'text-text-secondary hover:text-text hover:bg-surface-alt/60'
+                }`}
+                title={isSplit ? '关闭分屏' : '分屏对比'}
+              >
+                <Columns2 className="w-4.5 h-4.5" />
+              </button>
+            )}
+
             {/* AI Summary button (only when file is open) */}
             {currentFileName && onSummaryToggle && (
               <button
@@ -200,13 +261,13 @@ export function Layout({
       </header>
 
       {/* Main */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8">
+      <main className="flex-1 w-full flex flex-col min-h-0">
         {children}
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-border bg-surface-card/60">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-12 flex items-center justify-center text-sm text-text-secondary tracking-wide">
+      <footer className="border-t border-border bg-surface-card/60 shrink-0">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-10 flex items-center justify-center text-sm text-text-secondary tracking-wide">
           DocuSync — 文档预览与智能摘要
         </div>
       </footer>

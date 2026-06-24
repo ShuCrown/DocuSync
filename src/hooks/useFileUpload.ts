@@ -44,16 +44,16 @@ export function useFileUpload() {
     }
   }, [])
 
-  const restoreFromRecord = useCallback(async (record: { id: string; name: string; category: FileCategory }) => {
+  const restoreFromRecord = useCallback(async (record: { id: string; name: string; category: FileCategory; size?: number }) => {
     setError(null)
     setDownloading(true)
     setDownloadProgress(null)
     try {
       const blob = await api.downloadDocument(record.id, (loaded, total) => {
         if (total > 0) {
-          setDownloadProgress(Math.round((loaded / total) * 100))
+          setDownloadProgress(Math.min(Math.round((loaded / total) * 100), 100))
         }
-      })
+      }, record.size)
       if (blob.size === 0) {
         setError('文件下载失败，内容为空')
         return
