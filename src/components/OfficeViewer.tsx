@@ -26,7 +26,57 @@ export function OfficeViewer({ file, category, onTextExtracted }: OfficeViewerPr
         const buffer = await file.arrayBuffer()
 
         if (category === 'word') {
-          const result = await mammoth.convertToHtml({ arrayBuffer: buffer })
+          // Pre-defined font size styleMap entries (6pt - 72pt)
+          const fontSizeStyleMap: string[] = []
+          for (let pt = 6; pt <= 72; pt++) {
+            fontSizeStyleMap.push("r[style-name='__fs_" + pt + "__'] => span[style='font-size: " + pt + "pt']")
+          }
+
+          const result = await mammoth.convertToHtml(
+            { arrayBuffer: buffer },
+            {
+              ignoreEmptyParagraphs: false,
+              styleMap: [
+                // Alignment: synthetic styles (injected by transformDocument)
+                "p[style-name='__align_center__'] => p[style='text-align: center']",
+                "p[style-name='__align_right__'] => p[style='text-align: right']",
+                "p[style-name='__align_justify__'] => p[style='text-align: justify']",
+                // Alignment: common named styles (English)
+                "p[style-name='Center'] => p[style='text-align: center']",
+                "p[style-name='center'] => p[style='text-align: center']",
+                "p[style-name='Right'] => p[style='text-align: right']",
+                "p[style-name='right'] => p[style='text-align: right']",
+                "p[style-name='Justify'] => p[style='text-align: justify']",
+                "p[style-name='justify'] => p[style='text-align: justify']",
+                // Alignment: common named styles (Chinese)
+                "p[style-name='居中'] => p[style='text-align: center']",
+                "p[style-name='右对齐'] => p[style='text-align: right']",
+                "p[style-name='两端对齐'] => p[style='text-align: justify']",
+                // Font sizes (6pt - 72pt)
+                ...fontSizeStyleMap,
+              ],
+              transformDocument: (mammoth as any).transforms._elements(function (element: any) {
+                // Paragraph: inject alignment into styleName
+                if (element.type === 'paragraph') {
+                  if (element.alignment && element.alignment !== 'left') {
+                    return Object.assign({}, element, {
+                      styleName: '__align_' + element.alignment + '__',
+                    })
+                  }
+                }
+
+                // Run: inject fontSize into styleName
+                // mammoth already converts half-points to points (w:sz / 2)
+                if (element.type === 'run' && element.fontSize && element.fontSize > 0) {
+                  return Object.assign({}, element, {
+                    styleName: '__fs_' + element.fontSize + '__',
+                  })
+                }
+
+                return element
+              }),
+            }
+          )
           if (!cancelled) {
             setHtml(result.value)
             // Extract text for summary
@@ -92,7 +142,11 @@ export function OfficeViewer({ file, category, onTextExtracted }: OfficeViewerPr
     return (
       <div
         className="p-6 bg-surface-card overflow-auto h-full prose prose-sm max-w-none"
-        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }}
+        dangerouslySetInnerHTML={{
+          __html: DOMPurify.sanitize(html, {
+            ADD_ATTR: ['class', 'style'],
+          }),
+        }}
       />
     )
   }

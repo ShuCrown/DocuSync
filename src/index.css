@@ -111,4 +111,43 @@ body {
   --tw-prose-code: var(--color-primary-dark);
   --tw-prose-quotes: var(--color-text-secondary);
   --tw-prose-quote-borders: var(--color-primary);
+  line-height: 1.6;
+}
+
+/* Office viewer: TOC / anchor links visual distinction */
+.prose a[href^="#"] {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Office viewer: empty paragraphs (preserve blank lines) */
+.prose p:empty {
+  min-height: 1.6em;
+}
+
+/* Office viewer table borders */
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+}
+
+.prose th,
+.prose td {
+  border: 1px solid var(--color-border);
+  padding: 6px 10px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.prose th {
+  background: var(--color-surface-alt);
+  font-weight: 500;
+}
+
+/* Let inline style from mammoth override cell alignment */
+.prose td[style*="text-align"],
+.prose th[style*="text-align"] {
+  text-align: unset;
 }
