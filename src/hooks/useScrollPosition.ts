@@ -49,16 +49,18 @@ export function useScrollPosition(
 
     let cancelled = false
     let trackedEl: Element | null = null
+    let lastPosition: ScrollPosition | null = scrollCache.get(key) ?? initialPosition ?? null
     let attempts = 0
     const cached = scrollCache.get(key) ?? initialPosition
 
     const save = () => {
       const el = trackedEl ?? findScrollable(wrapperRef.current) ?? wrapperRef.current
       if (!el) return
-      scrollCache.set(key, {
+      lastPosition = {
         x: el.scrollWidth > el.clientWidth ? el.scrollLeft / (el.scrollWidth - el.clientWidth) : 0,
         y: el.scrollHeight > el.clientHeight ? el.scrollTop / (el.scrollHeight - el.clientHeight) : 0,
-      })
+      }
+      scrollCache.set(key, lastPosition)
     }
 
     const track = (el: Element) => {
@@ -95,7 +97,9 @@ export function useScrollPosition(
     return () => {
       cancelled = true
       cancelAnimationFrame(restoreRafRef.current)
-      save()
+      if (lastPosition) {
+        scrollCache.set(key, lastPosition)
+      }
       trackedEl?.removeEventListener('scroll', save)
     }
   }, [key, initialPosition])
