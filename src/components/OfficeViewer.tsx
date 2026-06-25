@@ -10,6 +10,52 @@ interface OfficeViewerProps {
   onTextExtracted?: (text: string) => void
 }
 
+function inferTocLevel(text: string) {
+  const normalized = text.replace(/\u00a0/g, ' ').trim()
+  const match = normalized.match(/^(\d+(?:\.\d+)*)/)
+
+  if (!match) return 1
+
+  return Math.min(match[1].split('.').length, 6)
+}
+
+function enhanceWordHtml(rawHtml: string) {
+  if (!rawHtml || typeof DOMParser === 'undefined') return rawHtml
+
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(`<div data-office-root="true">${rawHtml}</div>`, 'text/html')
+  const root = doc.body.firstElementChild
+
+  if (!root) return rawHtml
+
+  for (const paragraph of Array.from(root.querySelectorAll('p'))) {
+    const text = paragraph.textContent?.replace(/\u00a0/g, ' ').trim() ?? ''
+    const firstChild = paragraph.firstElementChild
+    const href = firstChild?.getAttribute('href')
+    const isInternalAnchorOnly = paragraph.childElementCount === 1 &&
+      firstChild?.tagName === 'A' &&
+      typeof href === 'string' &&
+      href.startsWith('#')
+
+    if (!text) continue
+
+    if (text === '目录') {
+      paragraph.classList.add('office-doc-toc-title')
+      continue
+    }
+
+    if (paragraph.classList.contains('office-doc-toc') || isInternalAnchorOnly) {
+      paragraph.classList.add('office-doc-toc')
+      if (!Array.from(paragraph.classList).some((name) => name.startsWith('office-doc-toc-level-'))) {
+        paragraph.classList.add(`office-doc-toc-level-${inferTocLevel(text)}`)
+      }
+      firstChild?.classList.add('office-doc-toc-link')
+    }
+  }
+
+  return root.innerHTML
+}
+
 export function OfficeViewer({ file, category, onTextExtracted }: OfficeViewerProps) {
   const [html, setHtml] = useState<string>('')
   const [tableData, setTableData] = useState<string[][][]>([])
@@ -37,28 +83,36 @@ export function OfficeViewer({ file, category, onTextExtracted }: OfficeViewerPr
             {
               ignoreEmptyParagraphs: false,
               styleMap: [
+                "p[style-name='toc 1'] => p.office-doc-toc.office-doc-toc-level-1:fresh",
+                "p[style-name='TOC 1'] => p.office-doc-toc.office-doc-toc-level-1:fresh",
+                "p[style-name='toc 2'] => p.office-doc-toc.office-doc-toc-level-2:fresh",
+                "p[style-name='TOC 2'] => p.office-doc-toc.office-doc-toc-level-2:fresh",
+                "p[style-name='toc 3'] => p.office-doc-toc.office-doc-toc-level-3:fresh",
+                "p[style-name='TOC 3'] => p.office-doc-toc.office-doc-toc-level-3:fresh",
                 // Alignment: synthetic styles (injected by transformDocument)
-                "p[style-name='__align_center__'] => p[style='text-align: center']",
-                "p[style-name='__align_right__'] => p[style='text-align: right']",
-                "p[style-name='__align_justify__'] => p[style='text-align: justify']",
+                "p[style-name='__align_center__'] => p[style='text-align: center']:fresh",
+                "p[style-name='__align_right__'] => p[style='text-align: right']:fresh",
+                "p[style-name='__align_justify__'] => p[style='text-align: justify']:fresh",
                 // Alignment: common named styles (English)
-                "p[style-name='Center'] => p[style='text-align: center']",
-                "p[style-name='center'] => p[style='text-align: center']",
-                "p[style-name='Right'] => p[style='text-align: right']",
-                "p[style-name='right'] => p[style='text-align: right']",
-                "p[style-name='Justify'] => p[style='text-align: justify']",
-                "p[style-name='justify'] => p[style='text-align: justify']",
+                "p[style-name='Center'] => p[style='text-align: center']:fresh",
+                "p[style-name='center'] => p[style='text-align: center']:fresh",
+                "p[style-name='Right'] => p[style='text-align: right']:fresh",
+                "p[style-name='right'] => p[style='text-align: right']:fresh",
+                "p[style-name='Justify'] => p[style='text-align: justify']:fresh",
+                "p[style-name='justify'] => p[style='text-align: justify']:fresh",
                 // Alignment: common named styles (Chinese)
-                "p[style-name='居中'] => p[style='text-align: center']",
-                "p[style-name='右对齐'] => p[style='text-align: right']",
-                "p[style-name='两端对齐'] => p[style='text-align: justify']",
+                "p[style-name='居中'] => p[style='text-align: center']:fresh",
+                "p[style-name='右对齐'] => p[style='text-align: right']:fresh",
+                "p[style-name='两端对齐'] => p[style='text-align: justify']:fresh",
                 // Font sizes (6pt - 72pt)
                 ...fontSizeStyleMap,
               ],
               transformDocument: (mammoth as any).transforms._elements(function (element: any) {
-                // Paragraph: inject alignment into styleName
+                // Paragraph: inject alignment into styleName (skip headings to preserve h1-h6 mapping)
                 if (element.type === 'paragraph') {
-                  if (element.alignment && element.alignment !== 'left') {
+                  const isHeading = (element.styleId && /^Heading/i.test(element.styleId)) ||
+                    (element.styleName && /^heading/i.test(element.styleName))
+                  if (!isHeading && element.alignment && element.alignment !== 'left') {
                     return Object.assign({}, element, {
                       styleName: '__align_' + element.alignment + '__',
                     })
@@ -78,7 +132,7 @@ export function OfficeViewer({ file, category, onTextExtracted }: OfficeViewerPr
             }
           )
           if (!cancelled) {
-            setHtml(result.value)
+            setHtml(enhanceWordHtml(result.value))
             // Extract text for summary
             const textResult = await mammoth.extractRawText({ arrayBuffer: buffer })
             onTextExtracted?.(textResult.value)
@@ -141,7 +195,7 @@ export function OfficeViewer({ file, category, onTextExtracted }: OfficeViewerPr
   if (category === 'word' || category === 'powerpoint') {
     return (
       <div
-        className="p-6 bg-surface-card overflow-auto h-full prose prose-sm max-w-none"
+        className="office-doc p-6 bg-surface-card overflow-auto h-full"
         dangerouslySetInnerHTML={{
           __html: DOMPurify.sanitize(html, {
             ADD_ATTR: ['class', 'style'],

@@ -102,52 +102,151 @@ body {
   padding: 0 !important;
 }
 
-/* Prose overrides for warm tone */
-.prose {
-  --tw-prose-body: var(--color-text);
-  --tw-prose-headings: var(--color-text);
-  --tw-prose-links: var(--color-primary);
-  --tw-prose-bold: var(--color-text);
-  --tw-prose-code: var(--color-primary-dark);
-  --tw-prose-quotes: var(--color-text-secondary);
-  --tw-prose-quote-borders: var(--color-primary);
+/* Office document styles: Tailwind preflight resets HTML defaults, so Word output
+   needs explicit typography, list, and TOC styling to preserve hierarchy. */
+.office-doc {
   line-height: 1.6;
+  font-size: 15px;
+  color: var(--color-text);
 }
 
-/* Office viewer: TOC / anchor links visual distinction */
-.prose a[href^="#"] {
+.office-doc h1,
+.office-doc h2,
+.office-doc h3,
+.office-doc h4,
+.office-doc h5,
+.office-doc h6 {
+  margin: 1.5em 0 0.6em;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  color: var(--color-primary-dark);
+}
+
+.office-doc h1 { font-size: 2em; }
+.office-doc h2 { font-size: 1.5em; }
+.office-doc h3 { font-size: 1.25em; }
+.office-doc h4 { font-size: 1.1em; }
+.office-doc h5,
+.office-doc h6 { font-size: 1em; }
+
+.office-doc p {
+  margin: 0 0 0.9em;
+}
+
+.office-doc a {
   color: var(--color-primary);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
-/* Office viewer: empty paragraphs (preserve blank lines) */
-.prose p:empty {
+.office-doc strong {
+  font-weight: 600;
+}
+
+.office-doc ol,
+.office-doc ul {
+  margin: 0.9em 0;
+  padding-left: 1.75em;
+}
+
+.office-doc ol {
+  list-style: decimal;
+}
+
+.office-doc ul {
+  list-style: disc;
+}
+
+.office-doc ol ol {
+  list-style: lower-alpha;
+}
+
+.office-doc ol ol ol {
+  list-style: lower-roman;
+}
+
+.office-doc ul ul {
+  list-style: circle;
+}
+
+.office-doc ul ul ul {
+  list-style: square;
+}
+
+.office-doc li {
+  margin: 0.35em 0;
+}
+
+.office-doc ol ol,
+.office-doc ol ul,
+.office-doc ul ol,
+.office-doc ul ul {
+  margin-top: 0.35em;
+}
+
+.office-doc p:empty {
   min-height: 1.6em;
 }
 
-/* Office viewer table borders */
-.prose table {
+.office-doc .office-doc-toc-title {
+  margin-top: 1.4em;
+  margin-bottom: 0.8em;
+  font-size: 1.05em;
+  font-weight: 600;
+}
+
+.office-doc .office-doc-toc {
+  margin: 0.3em 0;
+}
+
+.office-doc .office-doc-toc-link {
+  display: inline-block;
+  white-space: pre-wrap;
+}
+
+.office-doc .office-doc-toc-level-2 {
+  padding-left: 1.5em;
+}
+
+.office-doc .office-doc-toc-level-3 {
+  padding-left: 3em;
+}
+
+.office-doc .office-doc-toc-level-4 {
+  padding-left: 4.5em;
+}
+
+.office-doc .office-doc-toc-level-5 {
+  padding-left: 6em;
+}
+
+.office-doc .office-doc-toc-level-6 {
+  padding-left: 7.5em;
+}
+
+.office-doc table {
   width: 100%;
   border-collapse: collapse;
   margin: 1em 0;
 }
 
-.prose th,
-.prose td {
+.office-doc th,
+.office-doc td {
   border: 1px solid var(--color-border);
   padding: 6px 10px;
   text-align: center;
   vertical-align: middle;
 }
 
-.prose th {
+.office-doc th {
   background: var(--color-surface-alt);
   font-weight: 500;
 }
 
-/* Let inline style from mammoth override cell alignment */
-.prose td[style*="text-align"],
-.prose th[style*="text-align"] {
-  text-align: unset;
+.office-doc img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1em auto;
 }
