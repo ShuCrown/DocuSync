@@ -195,7 +195,7 @@ export function OfficeViewer({ file, category, onTextExtracted }: OfficeViewerPr
   if (category === 'word' || category === 'powerpoint') {
     return (
       <div
-        className="office-doc p-6 bg-surface-card overflow-auto h-full"
+        className="office-doc p-8 bg-surface-card overflow-y-auto overflow-x-hidden h-full"
         dangerouslySetInnerHTML={{
           __html: DOMPurify.sanitize(html, {
             ADD_ATTR: ['class', 'style'],

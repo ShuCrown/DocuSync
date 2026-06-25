@@ -108,6 +108,19 @@ body {
   line-height: 1.6;
   font-size: 15px;
   color: var(--color-text);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  padding-inline: 3rem;
+}
+
+.office-doc p,
+.office-doc li,
+.office-doc td,
+.office-doc th,
+.office-doc a,
+.office-doc span {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .office-doc h1,
