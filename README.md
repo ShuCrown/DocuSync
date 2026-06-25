@@ -1,73 +1,68 @@
-# React + TypeScript + Vite
+<div align="center">
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+<img src="public/hero.png" width="120" alt="DocuSync">
 
-Currently, two official plugins are available:
+# DocuSync
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+**Preview & summarize any document with AI**
 
-## React Compiler
+</div>
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Why
 
-## Expanding the ESLint configuration
+Every day we deal with PDFs, Word docs, Excel sheets, and slide decks scattered across tools. DocuSync brings them into one clean browser view — upload a file, preview it instantly, and get an AI-powered summary in seconds. No plugins, no installs, no account required.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## See it
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+| **PDF** · Full text rendering with page navigation | **Word** · Clean HTML conversion with TOC support | **Excel** · Spreadsheet parsing with sheet tabs |
+|:---:|:---:|:---:|
+| ![PDF](https://img.shields.io/badge/PDF-ef4444?style=flat-square&logo=adobeacrobatreader&logoColor=white) | ![Word](https://img.shields.io/badge/Word-2b579a?style=flat-square&logo=microsoftword&logoColor=white) | ![Excel](https://img.shields.io/badge/Excel-217346?style=flat-square&logo=microsoftexcel&logoColor=white) |
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+| **PowerPoint** · Slide deck preview with navigation | **Markdown** · Syntax highlighted rendering | **AI Summary** · One-click intelligent summary |
+|:---:|:---:|:---:|
+| ![PPT](https://img.shields.io/badge/PPT-b7472a?style=flat-square&logo=microsoftpowerpoint&logoColor=white) | ![Markdown](https://img.shields.io/badge/Markdown-000000?style=flat-square&logo=markdown&logoColor=white) | ![AI](https://img.shields.io/badge/AI-1B365D?style=flat-square&logo=cloudflare&logoColor=white) |
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Usage
+
+```bash
+# Install
+npm install
+
+# Development
+npm run dev              # Frontend only
+npm run pages:dev        # Full stack with API
+
+# Deploy
+npm run deploy           # Worker + Pages
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Design
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+| Element | Choice |
+|---------|--------|
+| Frontend | React 19 · Vite · TypeScript · Tailwind CSS v4 |
+| Backend | Cloudflare Worker · Hono |
+| Storage | R2 (files) · D1 (metadata & cache) |
+| AI | Cloudflare Workers AI · Llama 3.2 3B |
+| PDF | pdf.js with web worker |
+| Office | mammoth (Word) · xlsx (Excel) · DOMPurify (XSS safety) |
+| Markdown | react-markdown · remark-gfm · rehype-highlight |
+| Auth | Device-based (localStorage), optional email binding |
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Architecture
+
 ```
+┌──────────────┐     ┌───────────────┐     ┌──────────────┐
+│   Browser    │────▶│  CF Pages     │────▶│  CF Worker   │
+│  React App   │     │  (Functions)  │     │  (Hono API)  │
+└──────────────┘     └───────────────┘     └──────┬───────┘
+                                                   │
+                                          ┌────────┼────────┐
+                                          ▼        ▼        ▼
+                                        R2       D1       AI
+                                      (files)  (meta)  (summary)
+```
+
+## License
+
+MIT
