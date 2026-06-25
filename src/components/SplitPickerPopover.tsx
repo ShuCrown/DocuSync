@@ -1,4 +1,5 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, useCallback } from 'react'
+import { useDropzone } from 'react-dropzone'
 import { FileText, Upload, X, Loader2 } from 'lucide-react'
 import { getCategoryLabel } from '../utils/fileType'
 import { formatTime } from '../utils/formatTime'
@@ -91,19 +92,59 @@ export function SplitPickerPopover({
     const file = e.target.files?.[0]
     if (file) {
       onUpload(file)
-      // Reset input so the same file can be selected again
       e.target.value = ''
     }
   }
+
+  // Drag-and-drop (same pattern as home page FileUpload)
+  const onDrop = useCallback(
+    (accepted: File[]) => {
+      if (accepted.length > 0) {
+        onUpload(accepted[0]!)
+        onClose()
+      }
+    },
+    [onUpload, onClose],
+  )
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    multiple: false,
+    noClick: true, // don't trigger file picker on click (buttons handle that)
+    noKeyboard: true,
+    accept: {
+      'application/pdf': ['.pdf'],
+      'text/markdown': ['.md', '.markdown'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'application/msword': ['.doc'],
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+      'application/vnd.ms-excel': ['.xls'],
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx'],
+      'application/vnd.ms-powerpoint': ['.ppt'],
+    },
+  })
 
   if (!open) return null
 
   return (
     <div
       ref={popoverRef}
-      className="fixed z-50 w-80 bg-surface-card border border-border rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.12)] overflow-hidden"
+      {...getRootProps()}
+      className={`fixed z-50 w-80 bg-surface-card border rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.12)] overflow-hidden transition-colors ${
+        isDragActive ? 'border-primary bg-primary/[0.03]' : 'border-border'
+      }`}
       style={{ top: position.top, right: position.right }}
     >
+      <input {...getInputProps()} />
+
+      {/* Drag overlay */}
+      {isDragActive && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-primary/[0.06] rounded-lg">
+          <Upload className="w-8 h-8 text-primary mb-2" />
+          <p className="text-sm font-medium text-primary">释放文件到此处</p>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border bg-surface-alt/40">
         <span className="text-xs font-medium text-text-secondary">选择对比文档</span>
@@ -148,7 +189,7 @@ export function SplitPickerPopover({
         )}
       </div>
 
-      {/* Upload button */}
+      {/* Upload button (same style as home page FileUpload compact) */}
       <div className="border-t border-border">
         <input
           ref={fileInputRef}
