@@ -6,6 +6,7 @@ import { FileHistory } from './components/FileHistory'
 import { DocumentViewer } from './components/DocumentViewer'
 import { SummaryPanel } from './components/SummaryPanel'
 import { AccountPanel } from './components/AccountPanel'
+import { SelectionToolbar } from './components/SelectionToolbar'
 import { SplitPane } from './components/SplitPane'
 import { PaneHeader } from './components/PaneHeader'
 import { SplitPickerPopover } from './components/SplitPickerPopover'
@@ -353,6 +354,9 @@ export default function App() {
         onRecover={account.recoverAccount}
         onUnbind={account.unbindEmail}
       />
+
+      {/* Selection toolbar for AI Q&A */}
+      {activeFile && <SelectionToolbar />}
     </Layout>
   )
 }
