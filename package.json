@@ -15,7 +15,7 @@
     "deploy": "npm run worker:deploy && npm run pages:deploy"
   },
   "dependencies": {
-    "docx-preview": "^0.3.7",
+    "docx-preview": "^0.3.3",
     "dompurify": "^3.4.11",
     "highlight.js": "^11.11.1",
     "jszip": "^3.10.1",

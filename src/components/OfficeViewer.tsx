@@ -46,7 +46,8 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
           type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         })
 
-        await renderAsync(blob, el, undefined, {
+        // Wrap renderAsync with a 30s timeout to prevent infinite hang
+        const renderPromise = renderAsync(blob, el, undefined, {
           breakPages: false,
           ignoreLastRenderedPageBreak: true,
           renderHeaders: true,
@@ -54,6 +55,10 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
           renderFootnotes: true,
           renderEndnotes: true,
         })
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('文档渲染超时')), 30000)
+        )
+        await Promise.race([renderPromise, timeoutPromise])
 
         // Extract text for AI summary (reuse cached if available)
         let extractedText = textCache.get(documentKey)
@@ -133,6 +138,28 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
     return () => { cancelled = true }
   }, [file, category, cacheKey])
 
+  // Word: always keep container in DOM so ref is available for renderAsync
+  if (category === 'word') {
+    return (
+      <div className="relative office-doc bg-surface-card overflow-y-auto overflow-x-hidden h-full">
+        <div ref={containerRef} className="docx-render-container py-4 px-8" />
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center p-12 text-text-secondary bg-surface-card/80">
+            <Loader2 className="w-6 h-6 animate-spin mr-2" />
+            正在解析文件...
+          </div>
+        )}
+        {error && (
+          <div className="absolute inset-0 flex items-center justify-center p-6">
+            <div className="text-center text-error bg-error/5 rounded-lg border border-error/10 p-6">
+              {error}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center p-12 text-text-secondary">
@@ -146,14 +173,6 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
     return (
       <div className="p-6 text-center text-error bg-error/5 rounded-lg border border-error/10">
         {error}
-      </div>
-    )
-  }
-
-  if (category === 'word') {
-    return (
-      <div className="office-doc overflow-y-auto overflow-x-hidden h-full">
-        <div ref={containerRef} className="docx-render-container" />
       </div>
     )
   }

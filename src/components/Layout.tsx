@@ -1,4 +1,4 @@
-import { FileText, Clock, Sparkles, Loader2, X, User, Columns2 } from 'lucide-react'
+import { FileText, Clock, X, User, Columns2 } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { getCategoryLabel } from '../utils/fileType'
 import { formatTime } from '../utils/formatTime'
@@ -11,9 +11,6 @@ interface LayoutProps {
   onHistorySelect?: (record: FileRecord) => void
   onHistoryRemove?: (id: string) => void
   onHistoryClear?: () => void
-  onSummaryToggle?: () => void
-  summaryLoading?: boolean
-  hasSummary?: boolean
   email?: string | null
   onAccountOpen?: () => void
   // Split view props
@@ -30,9 +27,6 @@ export function Layout({
   onHistorySelect,
   onHistoryRemove,
   onHistoryClear,
-  onSummaryToggle,
-  summaryLoading,
-  hasSummary,
   email,
   onAccountOpen,
   splitMode,
@@ -76,7 +70,7 @@ export function Layout({
                 DocuSync
               </span>
               <span className="text-xs text-text-secondary tracking-wide hidden sm:inline whitespace-nowrap">
-                文档预览与智能摘要
+                文档预览
               </span>
             </div>
           </div>
@@ -92,24 +86,6 @@ export function Layout({
                 title="分屏对比"
               >
                 <Columns2 className="w-4.5 h-4.5" />
-              </button>
-            )}
-
-            {/* AI Summary button (only when file is open) */}
-            {currentFileName && onSummaryToggle && (
-              <button
-                onClick={onSummaryToggle}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-primary rounded-md hover:bg-primary-dark transition-colors"
-              >
-                {summaryLoading ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Sparkles className="w-3.5 h-3.5" />
-                )}
-                <span className="hidden sm:inline">AI 摘要</span>
-                {hasSummary && !summaryLoading && (
-                  <span className="w-1.5 h-1.5 bg-green-300 rounded-full" />
-                )}
               </button>
             )}
 

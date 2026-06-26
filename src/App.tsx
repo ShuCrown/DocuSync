@@ -4,7 +4,6 @@ import { Layout } from './components/Layout'
 import { FileUpload } from './components/FileUpload'
 import { FileHistory } from './components/FileHistory'
 import { DocumentViewer } from './components/DocumentViewer'
-import { SummaryPanel } from './components/SummaryPanel'
 import { AccountPanel } from './components/AccountPanel'
 import { SelectionToolbar } from './components/SelectionToolbar'
 import { SplitPane } from './components/SplitPane'
@@ -12,7 +11,6 @@ import { PaneHeader } from './components/PaneHeader'
 import { SimplePaneHeader } from './components/SimplePaneHeader'
 import { useFileUpload } from './hooks/useFileUpload'
 import { useFileHistory } from './hooks/useFileHistory'
-import { useSummary } from './hooks/useSummary'
 import { useAccount } from './hooks/useAccount'
 import { useSplitView } from './hooks/useSplitView'
 import { useScrollPosition, findScrollable } from './hooks/useScrollPosition'
@@ -23,7 +21,6 @@ import type { UploadedFile } from './hooks/useFileUpload'
 
 export default function App() {
   const { uploadedFile, error: uploadError, uploading, downloading, downloadProgress, handleFile, restoreFromRecord, clearFile } = useFileUpload()
-  const { summary, loading: summaryLoading, error: summaryError, summarize, loadCached, clear: clearSummary } = useSummary()
   const { history, addHistory, removeHistory, clearHistory } = useFileHistory()
   const account = useAccount()
   const {
@@ -34,8 +31,6 @@ export default function App() {
     setActivePane, toggleDirection, setSplitRatio, setPaneA, replacePaneB,
   } = useSplitView()
   const paneBRef = useRef(paneB)
-  const [extractedText, setExtractedText] = useState('')
-  const [summaryOpen, setSummaryOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const splitButtonRef = useRef<HTMLElement | null>(null)
   const singleScrollRef = useRef<HTMLDivElement | null>(null)
@@ -63,19 +58,8 @@ export default function App() {
     account.checkStatus()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleTextExtracted = useCallback((text: string) => {
-    setExtractedText(text)
-  }, [])
-
   // Get the active file based on which pane is active
   const activeFile = activePane === 'b' && paneB ? paneB : paneA
-
-  const handleSummarize = useCallback(() => {
-    const docId = activeFile?.docId
-    if (docId) {
-      summarize(docId, extractedText)
-    }
-  }, [summarize, activeFile, extractedText])
 
   // Stable pane callbacks using refs to avoid stale closures while keeping references stable
   const handlePaneAClose = useCallback(() => {
@@ -97,14 +81,6 @@ export default function App() {
     setActivePane(pane)
   }, [setActivePane])
 
-  const handleSummaryToggle = useCallback(() => {
-    setSummaryOpen((v) => !v)
-  }, [])
-
-  const handleSummaryClose = useCallback(() => {
-    setSummaryOpen(false)
-  }, [])
-
   // Sync uploadedFile to paneA
   useEffect(() => {
     if (uploadedFile && !paneA) {
@@ -115,10 +91,7 @@ export default function App() {
   const handleFileWithHistory = useCallback(async (file: File) => {
     await handleFile(file)
     addHistory(file, 'unknown')
-    clearSummary()
-    setExtractedText('')
-    setSummaryOpen(false)
-  }, [handleFile, addHistory, clearSummary])
+  }, [handleFile, addHistory])
 
   const handleClear = useCallback(() => {
     if (splitMode === 'split') {
@@ -126,18 +99,11 @@ export default function App() {
     }
     clearFile()
     setPaneA(null)
-    clearSummary()
-    setExtractedText('')
-    setSummaryOpen(false)
-  }, [clearFile, clearSummary, splitMode, exitSplit, setPaneA])
+  }, [clearFile, splitMode, exitSplit, setPaneA])
 
   const handleHistorySelect = useCallback(async (record: FileRecord) => {
     await restoreFromRecord(record)
-    clearSummary()
-    setExtractedText('')
-    setSummaryOpen(false)
-    await loadCached(record.id)
-  }, [restoreFromRecord, clearSummary, loadCached])
+  }, [restoreFromRecord])
 
   const handleAccountOpen = useCallback(() => {
     setAccountOpen(true)
@@ -212,11 +178,11 @@ export default function App() {
       <div ref={paneAScrollRef} className="flex-1 overflow-auto">
         <DocumentViewer
           uploaded={paneA!}
-          onTextExtracted={activePane === 'a' ? handleTextExtracted : () => {}}
+          onTextExtracted={() => {}}
         />
       </div>
     </div>
-  ), [paneA, activePane, handlePaneAClose, handlePaneFocus, handleTextExtracted, paneAScrollRef])
+  ), [paneA, activePane, handlePaneAClose, handlePaneFocus, paneAScrollRef])
 
   const paneBElement = useMemo(() => (
     <div className="h-full flex flex-col">
@@ -231,11 +197,11 @@ export default function App() {
       <div ref={paneBScrollRef} className="flex-1 overflow-auto">
         <DocumentViewer
           uploaded={paneB!}
-          onTextExtracted={activePane === 'b' ? handleTextExtracted : () => {}}
+          onTextExtracted={() => {}}
         />
       </div>
     </div>
-  ), [paneB, activePane, handlePaneBClose, handleReplacePaneB, handlePaneFocus, handleTextExtracted, paneBScrollRef])
+  ), [paneB, activePane, handlePaneBClose, handleReplacePaneB, handlePaneFocus, paneBScrollRef])
 
   // Picker view for pane B when no file is selected (same layout as home page)
   const handlePickerFile = useCallback(async (file: File) => {
@@ -295,9 +261,6 @@ export default function App() {
       onHistorySelect={handleHistorySelect}
       onHistoryRemove={removeHistory}
       onHistoryClear={clearHistory}
-      onSummaryToggle={activeFile ? handleSummaryToggle : undefined}
-      summaryLoading={summaryLoading}
-      hasSummary={!!summary}
       email={account.email}
       onAccountOpen={handleAccountOpen}
       splitMode={splitMode}
@@ -340,22 +303,10 @@ export default function App() {
           <div ref={handleSingleScrollRef} className="flex-1 overflow-auto">
             <DocumentViewer
               uploaded={singleFile!}
-              onTextExtracted={handleTextExtracted}
+              onTextExtracted={() => {}}
             />
           </div>
         </div>
-      )}
-
-      {activeFile && (
-        <SummaryPanel
-          summary={summary}
-          loading={summaryLoading}
-          error={summaryError}
-          onSummarize={handleSummarize}
-          hasText={extractedText.length > 0 || !!activeFile?.docId}
-          open={summaryOpen}
-          onClose={handleSummaryClose}
-        />
       )}
 
       {/* Download loading overlay */}

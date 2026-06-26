@@ -266,21 +266,40 @@ body {
 
 /* docx-preview rendered output — the library generates .docx-wrapper > .docx
    with inline styles from the document's own styles.xml. These rules restore
-   HTML defaults that Tailwind preflight resets and add DocuSync theming. */
+   HTML defaults that Tailwind preflight resets and match DocuSync's kami
+   paper-like aesthetic: soft, warm, no harsh borders. */
 .docx-render-container {
-  padding: 0.5rem 2rem;
+  /* Padding is controlled by contentPadding prop via Tailwind classes */
 }
 
 .docx-render-container .docx-wrapper {
-  background-color: var(--color-surface-card);
-  padding: 1.5rem;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
+  background: transparent;
+  padding: 0;
+  border: none;
+  box-shadow: none;
+  width: 100% !important;
+  max-width: 100% !important;
 }
 
 .docx-render-container .docx {
   overflow-wrap: anywhere;
   word-break: break-word;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* Override docx-preview's fixed page-width sections so content adapts to pane width */
+.docx-render-container section,
+.docx-render-container section.docx {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box;
+  padding: 0;
+  /* Remove white page background and floating shadow */
+  background: transparent !important;
+  box-shadow: none !important;
+  margin-bottom: 0 !important;
 }
 
 /* Restore list styles that Tailwind preflight removes */
