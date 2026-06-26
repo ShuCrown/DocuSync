@@ -263,3 +263,55 @@ body {
   height: auto;
   margin: 1em auto;
 }
+
+/* docx-preview rendered output — the library generates .docx-wrapper > .docx
+   with inline styles from the document's own styles.xml. These rules restore
+   HTML defaults that Tailwind preflight resets and add DocuSync theming. */
+.docx-render-container {
+  padding: 0.5rem 2rem;
+}
+
+.docx-render-container .docx-wrapper {
+  background-color: var(--color-surface-card);
+  padding: 1.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+}
+
+.docx-render-container .docx {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Restore list styles that Tailwind preflight removes */
+.docx-render-container ul {
+  list-style-type: disc;
+}
+
+.docx-render-container ol {
+  list-style-type: decimal;
+}
+
+.docx-render-container ul ul {
+  list-style-type: circle;
+}
+
+.docx-render-container ol ol {
+  list-style-type: lower-alpha;
+}
+
+/* Ensure images don't overflow */
+.docx-render-container img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Table fallback styling when the document doesn't specify borders */
+.docx-render-container table {
+  border-collapse: collapse;
+}
+
+.docx-render-container td,
+.docx-render-container th {
+  vertical-align: middle;
+}
