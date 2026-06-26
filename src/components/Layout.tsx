@@ -1,4 +1,4 @@
-import { FileText, ArrowLeft, Clock, Sparkles, Loader2, X, User, Columns2 } from 'lucide-react'
+import { FileText, Clock, Sparkles, Loader2, X, User, Columns2 } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { getCategoryLabel } from '../utils/fileType'
 import { formatTime } from '../utils/formatTime'
@@ -60,32 +60,25 @@ export function Layout({
       {/* Header */}
       <header className="border-b border-border bg-surface-card/80 backdrop-blur-sm relative z-30">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
-          {/* Left: back + file name or logo */}
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            {currentFileName ? (
-              <>
-                <button
-                  onClick={onBack}
-                  className="p-1.5 rounded-md hover:bg-surface-alt transition-colors text-text-secondary hover:text-text shrink-0"
-                  title="返回上传页"
-                >
-                  <ArrowLeft className="w-4.5 h-4.5" />
-                </button>
-                {!isSplit && (
-                  <>
-                    <FileText className="w-4.5 h-4.5 text-primary shrink-0" />
-                    <span className="text-sm font-medium text-text truncate">
-                      {currentFileName}
-                    </span>
-                  </>
-                )}
-              </>
-            ) : (
-              <div className="flex items-center gap-2.5">
-                <FileText className="w-5 h-5 text-primary" />
-                <span className="text-lg font-medium text-text tracking-tight">DocuSync</span>
-              </div>
-            )}
+          {/* Left: brand + subtitle */}
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            <FileText className="w-5 h-5 text-primary shrink-0" />
+            <div className="flex items-baseline gap-2 min-w-0">
+              <span
+                onClick={currentFileName ? onBack : undefined}
+                className={`text-lg font-medium text-text tracking-tight whitespace-nowrap ${
+                  currentFileName
+                    ? 'cursor-pointer hover:text-primary transition-colors'
+                    : ''
+                }`}
+                title={currentFileName ? '返回首页' : undefined}
+              >
+                DocuSync
+              </span>
+              <span className="text-xs text-text-secondary tracking-wide hidden sm:inline whitespace-nowrap">
+                文档预览与智能摘要
+              </span>
+            </div>
           </div>
 
           {/* Right: actions */}
@@ -216,12 +209,6 @@ export function Layout({
         {children}
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-border bg-surface-card/60 shrink-0">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-10 flex items-center justify-center text-sm text-text-secondary tracking-wide">
-          DocuSync — 文档预览与智能摘要
-        </div>
-      </footer>
     </div>
   )
 }

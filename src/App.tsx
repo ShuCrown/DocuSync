@@ -9,6 +9,7 @@ import { AccountPanel } from './components/AccountPanel'
 import { SelectionToolbar } from './components/SelectionToolbar'
 import { SplitPane } from './components/SplitPane'
 import { PaneHeader } from './components/PaneHeader'
+import { SimplePaneHeader } from './components/SimplePaneHeader'
 import { useFileUpload } from './hooks/useFileUpload'
 import { useFileHistory } from './hooks/useFileHistory'
 import { useSummary } from './hooks/useSummary'
@@ -331,11 +332,17 @@ export default function App() {
           paneB={paneB ? paneBElement : paneBPickerElement}
         />
       ) : (
-        <div ref={handleSingleScrollRef} className="flex-1 overflow-auto">
-          <DocumentViewer
-            uploaded={singleFile!}
-            onTextExtracted={handleTextExtracted}
+        <div className="flex-1 flex flex-col min-h-0">
+          <SimplePaneHeader
+            fileName={singleFile!.file.name}
+            onClose={handleClear}
           />
+          <div ref={handleSingleScrollRef} className="flex-1 overflow-auto">
+            <DocumentViewer
+              uploaded={singleFile!}
+              onTextExtracted={handleTextExtracted}
+            />
+          </div>
         </div>
       )}
 
