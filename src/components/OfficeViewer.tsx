@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { renderAsync } from 'docx-preview'
 import * as mammoth from 'mammoth'
 import * as XLSX from 'xlsx'
 import DOMPurify from 'dompurify'
 import { Loader2 } from 'lucide-react'
+import { ImagePreviewModal } from './ImagePreviewModal'
 
 interface OfficeViewerProps {
   file: File
@@ -15,13 +16,26 @@ interface OfficeViewerProps {
 /** Cache for extracted text (used by AI summary) */
 const textCache = new Map<string, string>()
 
-function normalizeDocxImageSvgs(container: HTMLElement) {
+function normalizeDocxImageSvgs(container: HTMLElement, onImageClick?: (src: string) => void) {
   container.querySelectorAll<SVGSVGElement>('svg').forEach(svg => {
     const containsImage = Boolean(svg.querySelector('image'))
 
     if (containsImage) {
       svg.classList.add('docx-render-image-svg')
       svg.setAttribute('preserveAspectRatio', 'xMidYMid meet')
+      svg.style.cursor = 'pointer'
+
+      // Add click handler for image preview
+      if (onImageClick && !svg.dataset.previewBound) {
+        svg.dataset.previewBound = 'true'
+        svg.addEventListener('click', (e) => {
+          e.stopPropagation()
+          const imageEl = svg.querySelector('image')
+          const src = imageEl?.getAttribute('href')
+            || imageEl?.getAttributeNS('http://www.w3.org/1999/xlink', 'href')
+          if (src) onImageClick(src)
+        })
+      }
     }
 
     if (!svg.getAttribute('viewBox')) {
@@ -41,8 +55,12 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
   const [pptHtml, setPptHtml] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const latestOnTextExtractedRef = useRef(onTextExtracted)
+
+  const handleImageClick = useCallback((src: string) => setPreviewSrc(src), [])
+  const handleClosePreview = useCallback(() => setPreviewSrc(null), [])
 
   useEffect(() => {
     latestOnTextExtractedRef.current = onTextExtracted
@@ -85,8 +103,8 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
         // fixed SVG width/height attributes. Normalize after that pass so CSS can
         // scale document images with the preview pane.
         requestAnimationFrame(() => {
-          normalizeDocxImageSvgs(el)
-          requestAnimationFrame(() => normalizeDocxImageSvgs(el))
+          normalizeDocxImageSvgs(el, handleImageClick)
+          requestAnimationFrame(() => normalizeDocxImageSvgs(el, handleImageClick))
         })
 
         // Extract text for AI summary (reuse cached if available)
@@ -170,22 +188,25 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
   // Word: always keep container in DOM so ref is available for renderAsync
   if (category === 'word') {
     return (
-      <div className="relative office-doc bg-surface-card overflow-y-auto h-full">
-        <div ref={containerRef} className="docx-render-container py-4 px-10" />
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center p-12 text-text-secondary bg-surface-card/80">
-            <Loader2 className="w-6 h-6 animate-spin mr-2" />
-            正在解析文件...
-          </div>
-        )}
-        {error && (
-          <div className="absolute inset-0 flex items-center justify-center p-6">
-            <div className="text-center text-error bg-error/5 rounded-lg border border-error/10 p-6">
-              {error}
+      <>
+        <div className="relative office-doc bg-surface-card overflow-y-auto h-full">
+          <div ref={containerRef} className="docx-render-container py-4 px-10" />
+          {loading && (
+            <div className="absolute inset-0 flex items-center justify-center p-12 text-text-secondary bg-surface-card/80">
+              <Loader2 className="w-6 h-6 animate-spin mr-2" />
+              正在解析文件...
             </div>
-          </div>
-        )}
-      </div>
+          )}
+          {error && (
+            <div className="absolute inset-0 flex items-center justify-center p-6">
+              <div className="text-center text-error bg-error/5 rounded-lg border border-error/10 p-6">
+                {error}
+              </div>
+            </div>
+          )}
+        </div>
+        {previewSrc && <ImagePreviewModal src={previewSrc} onClose={handleClosePreview} />}
+      </>
     )
   }
 
