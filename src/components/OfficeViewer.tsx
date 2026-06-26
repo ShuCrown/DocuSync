@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { renderAsync } from 'docx-preview'
 import * as mammoth from 'mammoth'
 import * as XLSX from 'xlsx'
 import DOMPurify from 'dompurify'
@@ -11,88 +12,83 @@ interface OfficeViewerProps {
   onTextExtracted?: (text: string) => void
 }
 
-interface OfficeCacheEntry {
-  category: 'word' | 'excel' | 'powerpoint'
-  html: string
-  tableData: string[][][]
-  sheetNames: string[]
-  extractedText: string
-}
-
-const officeCache = new Map<string, OfficeCacheEntry>()
-
-function inferTocLevel(text: string) {
-  const normalized = text.replace(/\u00a0/g, ' ').trim()
-  const match = normalized.match(/^(\d+(?:\.\d+)*)/)
-
-  if (!match) return 1
-
-  return Math.min(match[1].split('.').length, 6)
-}
-
-function enhanceWordHtml(rawHtml: string) {
-  if (!rawHtml || typeof DOMParser === 'undefined') return rawHtml
-
-  const parser = new DOMParser()
-  const doc = parser.parseFromString(`<div data-office-root="true">${rawHtml}</div>`, 'text/html')
-  const root = doc.body.firstElementChild
-
-  if (!root) return rawHtml
-
-  for (const paragraph of Array.from(root.querySelectorAll('p'))) {
-    const text = paragraph.textContent?.replace(/\u00a0/g, ' ').trim() ?? ''
-    const firstChild = paragraph.firstElementChild
-    const href = firstChild?.getAttribute('href')
-    const isInternalAnchorOnly = paragraph.childElementCount === 1 &&
-      firstChild?.tagName === 'A' &&
-      typeof href === 'string' &&
-      href.startsWith('#')
-
-    if (!text) continue
-
-    if (text === '目录') {
-      paragraph.classList.add('office-doc-toc-title')
-      continue
-    }
-
-    if (paragraph.classList.contains('office-doc-toc') || isInternalAnchorOnly) {
-      paragraph.classList.add('office-doc-toc')
-      if (!Array.from(paragraph.classList).some((name) => name.startsWith('office-doc-toc-level-'))) {
-        paragraph.classList.add(`office-doc-toc-level-${inferTocLevel(text)}`)
-      }
-      firstChild?.classList.add('office-doc-toc-link')
-    }
-  }
-
-  return root.innerHTML
-}
+/** Cache for extracted text (used by AI summary) */
+const textCache = new Map<string, string>()
 
 export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: OfficeViewerProps) {
-  const [html, setHtml] = useState<string>('')
   const [tableData, setTableData] = useState<string[][][]>([])
   const [sheetNames, setSheetNames] = useState<string[]>([])
+  const [pptHtml, setPptHtml] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const latestOnTextExtractedRef = useRef(onTextExtracted)
 
   useEffect(() => {
     latestOnTextExtractedRef.current = onTextExtracted
   }, [onTextExtracted])
 
+  // Word: render with docx-preview, extract text with mammoth
   useEffect(() => {
+    if (category !== 'word') return
+    const el = containerRef.current
+    if (!el) return
+
     let cancelled = false
     const documentKey = cacheKey ?? `${category}:${file.name}:${file.size}:${file.lastModified}`
-    const cached = officeCache.get(documentKey)
 
-    if (cached && cached.category === category) {
-      setHtml(cached.html)
-      setTableData(cached.tableData)
-      setSheetNames(cached.sheetNames)
+    const process = async () => {
+      setLoading(true)
       setError(null)
-      setLoading(false)
-      latestOnTextExtractedRef.current?.(cached.extractedText)
-      return () => { cancelled = true }
+      try {
+        const buffer = await file.arrayBuffer()
+        const blob = new Blob([buffer], {
+          type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        })
+
+        // Wrap renderAsync with a 30s timeout to prevent infinite hang
+        const renderPromise = renderAsync(blob, el, undefined, {
+          breakPages: false,
+          ignoreLastRenderedPageBreak: true,
+          renderHeaders: true,
+          renderFooters: true,
+          renderFootnotes: true,
+          renderEndnotes: true,
+        })
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('文档渲染超时')), 30000)
+        )
+        await Promise.race([renderPromise, timeoutPromise])
+
+        // Extract text for AI summary (reuse cached if available)
+        let extractedText = textCache.get(documentKey)
+        if (extractedText === undefined) {
+          const textResult = await mammoth.extractRawText({ arrayBuffer: buffer })
+          extractedText = textResult.value
+          textCache.set(documentKey, extractedText)
+        }
+
+        if (!cancelled) {
+          latestOnTextExtractedRef.current?.(extractedText)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : '文件解析失败')
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
     }
+    process()
+    return () => { cancelled = true }
+  }, [file, category, cacheKey])
+
+  // Excel / PowerPoint
+  useEffect(() => {
+    if (category === 'word') return
+
+    let cancelled = false
+    const documentKey = cacheKey ?? `${category}:${file.name}:${file.size}:${file.lastModified}`
 
     const process = async () => {
       setLoading(true)
@@ -100,84 +96,7 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
       try {
         const buffer = await file.arrayBuffer()
 
-        if (category === 'word') {
-          // Pre-defined font size styleMap entries (6pt - 72pt)
-          const fontSizeStyleMap: string[] = []
-          for (let pt = 6; pt <= 72; pt++) {
-            fontSizeStyleMap.push("r[style-name='__fs_" + pt + "__'] => span[style='font-size: " + pt + "pt']")
-          }
-
-          const result = await mammoth.convertToHtml(
-            { arrayBuffer: buffer },
-            {
-              ignoreEmptyParagraphs: false,
-              styleMap: [
-                "p[style-name='toc 1'] => p.office-doc-toc.office-doc-toc-level-1:fresh",
-                "p[style-name='TOC 1'] => p.office-doc-toc.office-doc-toc-level-1:fresh",
-                "p[style-name='toc 2'] => p.office-doc-toc.office-doc-toc-level-2:fresh",
-                "p[style-name='TOC 2'] => p.office-doc-toc.office-doc-toc-level-2:fresh",
-                "p[style-name='toc 3'] => p.office-doc-toc.office-doc-toc-level-3:fresh",
-                "p[style-name='TOC 3'] => p.office-doc-toc.office-doc-toc-level-3:fresh",
-                // Alignment: synthetic styles (injected by transformDocument)
-                "p[style-name='__align_center__'] => p[style='text-align: center']:fresh",
-                "p[style-name='__align_right__'] => p[style='text-align: right']:fresh",
-                "p[style-name='__align_justify__'] => p[style='text-align: justify']:fresh",
-                // Alignment: common named styles (English)
-                "p[style-name='Center'] => p[style='text-align: center']:fresh",
-                "p[style-name='center'] => p[style='text-align: center']:fresh",
-                "p[style-name='Right'] => p[style='text-align: right']:fresh",
-                "p[style-name='right'] => p[style='text-align: right']:fresh",
-                "p[style-name='Justify'] => p[style='text-align: justify']:fresh",
-                "p[style-name='justify'] => p[style='text-align: justify']:fresh",
-                // Alignment: common named styles (Chinese)
-                "p[style-name='居中'] => p[style='text-align: center']:fresh",
-                "p[style-name='右对齐'] => p[style='text-align: right']:fresh",
-                "p[style-name='两端对齐'] => p[style='text-align: justify']:fresh",
-                // Font sizes (6pt - 72pt)
-                ...fontSizeStyleMap,
-              ],
-              transformDocument: (mammoth as any).transforms._elements(function (element: any) {
-                // Paragraph: inject alignment into styleName (skip headings to preserve h1-h6 mapping)
-                if (element.type === 'paragraph') {
-                  const isHeading = (element.styleId && /^Heading/i.test(element.styleId)) ||
-                    (element.styleName && /^heading/i.test(element.styleName))
-                  if (!isHeading && element.alignment && element.alignment !== 'left') {
-                    return Object.assign({}, element, {
-                      styleName: '__align_' + element.alignment + '__',
-                    })
-                  }
-                }
-
-                // Run: inject fontSize into styleName
-                // mammoth already converts half-points to points (w:sz / 2)
-                if (element.type === 'run' && element.fontSize && element.fontSize > 0) {
-                  return Object.assign({}, element, {
-                    styleName: '__fs_' + element.fontSize + '__',
-                  })
-                }
-
-                return element
-              }),
-            }
-          )
-          const enhancedHtml = enhanceWordHtml(result.value)
-          const textResult = await mammoth.extractRawText({ arrayBuffer: buffer })
-          const extractedText = textResult.value
-          if (!cancelled) {
-            setHtml(enhancedHtml)
-            setSheetNames([])
-            setTableData([])
-            const nextEntry: OfficeCacheEntry = {
-              category,
-              html: enhancedHtml,
-              tableData: [],
-              sheetNames: [],
-              extractedText,
-            }
-            officeCache.set(documentKey, nextEntry)
-            latestOnTextExtractedRef.current?.(extractedText)
-          }
-        } else if (category === 'excel') {
+        if (category === 'excel') {
           const workbook = XLSX.read(buffer, { type: 'array' })
           const names = workbook.SheetNames
           const sheets: string[][][] = []
@@ -192,36 +111,18 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
           }
           const extractedText = texts.join('\n\n')
           if (!cancelled) {
-            setHtml('')
             setSheetNames(names)
             setTableData(sheets)
-            const nextEntry: OfficeCacheEntry = {
-              category,
-              html: '',
-              tableData: sheets,
-              sheetNames: names,
-              extractedText,
-            }
-            officeCache.set(documentKey, nextEntry)
+            textCache.set(documentKey, extractedText)
             latestOnTextExtractedRef.current?.(extractedText)
           }
         } else if (category === 'powerpoint') {
-          // PPT: extract basic text content
-          // For simplicity, show a placeholder with extracted text
           const extractedText = 'PowerPoint 文件内容（需要服务端解析以获取完整文本）'
-          const htmlContent = '<p class="text-text-secondary">PPT 预览暂以文本内容展示</p>'
           if (!cancelled) {
-            setHtml(htmlContent)
+            setPptHtml('<p class="text-text-secondary">PPT 预览暂以文本内容展示</p>')
             setSheetNames([])
             setTableData([])
-            const nextEntry: OfficeCacheEntry = {
-              category,
-              html: htmlContent,
-              tableData: [],
-              sheetNames: [],
-              extractedText,
-            }
-            officeCache.set(documentKey, nextEntry)
+            textCache.set(documentKey, extractedText)
             latestOnTextExtractedRef.current?.(extractedText)
           }
         }
@@ -236,6 +137,28 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
     process()
     return () => { cancelled = true }
   }, [file, category, cacheKey])
+
+  // Word: always keep container in DOM so ref is available for renderAsync
+  if (category === 'word') {
+    return (
+      <div className="relative office-doc bg-surface-card overflow-y-auto overflow-x-hidden h-full">
+        <div ref={containerRef} className="docx-render-container py-4 px-8" />
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center p-12 text-text-secondary bg-surface-card/80">
+            <Loader2 className="w-6 h-6 animate-spin mr-2" />
+            正在解析文件...
+          </div>
+        )}
+        {error && (
+          <div className="absolute inset-0 flex items-center justify-center p-6">
+            <div className="text-center text-error bg-error/5 rounded-lg border border-error/10 p-6">
+              {error}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   if (loading) {
     return (
@@ -254,14 +177,12 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
     )
   }
 
-  if (category === 'word' || category === 'powerpoint') {
+  if (category === 'powerpoint') {
     return (
       <div
         className="office-doc p-8 bg-surface-card overflow-y-auto overflow-x-hidden h-full"
         dangerouslySetInnerHTML={{
-          __html: DOMPurify.sanitize(html, {
-            ADD_ATTR: ['class', 'style'],
-          }),
+          __html: DOMPurify.sanitize(pptHtml, { ADD_ATTR: ['class', 'style'] }),
         }}
       />
     )
