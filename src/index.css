@@ -110,7 +110,6 @@ body {
   color: var(--color-text);
   overflow-wrap: anywhere;
   word-break: break-word;
-  padding-inline: 3rem;
 }
 
 .office-doc p,
@@ -281,6 +280,27 @@ body {
   max-width: 100% !important;
 }
 
+/* Override docx-preview's internal CSS: wrapper padding and section margins */
+.docx-render-container .docx-wrapper {
+  padding: 0 !important;
+  align-items: stretch !important;
+}
+
+.docx-render-container .docx-wrapper > section.docx {
+  margin-bottom: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+/* Override inline pageMargins padding set by createPageElement */
+.docx-render-container section.docx {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
 .docx-render-container .docx {
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -319,10 +339,18 @@ body {
   list-style-type: lower-alpha;
 }
 
-/* Ensure images don't overflow */
+/* Ensure images don't overflow — docx-preview sets inline width/height from the
+   document's styles.xml, so !important is needed to override for narrow panes */
 .docx-render-container img {
-  max-width: 100%;
-  height: auto;
+  max-width: 100% !important;
+  height: auto !important;
+}
+
+/* docx-preview wraps images in <svg> containers with fixed inline width — force
+   them to scale with the content area */
+.docx-render-container svg {
+  max-width: 100% !important;
+  height: auto !important;
 }
 
 /* Table fallback styling when the document doesn't specify borders */

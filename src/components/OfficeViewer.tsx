@@ -49,6 +49,7 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
         // Wrap renderAsync with a 30s timeout to prevent infinite hang
         const renderPromise = renderAsync(blob, el, undefined, {
           breakPages: false,
+          ignoreWidth: true,
           ignoreLastRenderedPageBreak: true,
           renderHeaders: true,
           renderFooters: true,
@@ -141,8 +142,8 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
   // Word: always keep container in DOM so ref is available for renderAsync
   if (category === 'word') {
     return (
-      <div className="relative office-doc bg-surface-card overflow-y-auto overflow-x-hidden h-full">
-        <div ref={containerRef} className="docx-render-container py-4 px-8" />
+      <div className="relative office-doc bg-surface-card overflow-y-auto h-full">
+        <div ref={containerRef} className="docx-render-container py-4 px-10" />
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center p-12 text-text-secondary bg-surface-card/80">
             <Loader2 className="w-6 h-6 animate-spin mr-2" />
