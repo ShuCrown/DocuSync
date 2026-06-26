@@ -19,6 +19,7 @@ export interface SplitViewActions {
   openPicker: () => void
   closePicker: () => void
   enterSplit: (fileB: UploadedFile) => void
+  enterSplitPicker: () => void
   exitSplit: () => void
   closePaneA: () => void
   closePaneB: () => void
@@ -48,6 +49,14 @@ export function useSplitView(): SplitViewState & SplitViewActions {
     setMode('split')
     setPickerOpen(false)
     setActivePane('a')
+  }, [])
+
+  // Enter split mode showing picker in pane B (no file selected yet)
+  const enterSplitPicker = useCallback(() => {
+    setPaneB(null)
+    setMode('split')
+    setPickerOpen(false)
+    setActivePane('b')
   }, [])
 
   const exitSplit = useCallback(() => {
@@ -107,6 +116,7 @@ export function useSplitView(): SplitViewState & SplitViewActions {
     openPicker,
     closePicker,
     enterSplit,
+    enterSplitPicker,
     exitSplit,
     closePaneA,
     closePaneB,

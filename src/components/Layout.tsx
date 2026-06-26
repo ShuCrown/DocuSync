@@ -1,10 +1,8 @@
-import { FileText, ExternalLink, ArrowLeft, Clock, Sparkles, Loader2, X, User, Columns2, Rows2, Columns3 } from 'lucide-react'
+import { FileText, ArrowLeft, Clock, Sparkles, Loader2, X, User, Columns2 } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { getCategoryLabel } from '../utils/fileType'
 import { formatTime } from '../utils/formatTime'
 import type { FileRecord } from '../hooks/useFileHistory'
-import type { SplitDirection } from '../hooks/useSplitView'
-
 interface LayoutProps {
   children: React.ReactNode
   currentFileName?: string | null
@@ -20,10 +18,7 @@ interface LayoutProps {
   onAccountOpen?: () => void
   // Split view props
   splitMode?: 'single' | 'split'
-  splitDirection?: SplitDirection
-  splitFileName?: string | null
   onSplitToggle?: () => void
-  onDirectionToggle?: () => void
   splitButtonRef?: React.RefObject<HTMLElement | null>
 }
 
@@ -41,10 +36,7 @@ export function Layout({
   email,
   onAccountOpen,
   splitMode,
-  splitDirection,
-  splitFileName,
   onSplitToggle,
-  onDirectionToggle,
   splitButtonRef,
 }: LayoutProps) {
   const isSplit = splitMode === 'split'
@@ -79,18 +71,7 @@ export function Layout({
                 >
                   <ArrowLeft className="w-4.5 h-4.5" />
                 </button>
-                {isSplit && splitFileName ? (
-                  <>
-                    <FileText className="w-4.5 h-4.5 text-primary shrink-0" />
-                    <span className="text-sm font-medium text-text truncate">
-                      {currentFileName}
-                    </span>
-                    <span className="text-xs text-text-secondary mx-0.5">↔</span>
-                    <span className="text-sm font-medium text-text truncate">
-                      {splitFileName}
-                    </span>
-                  </>
-                ) : (
+                {!isSplit && (
                   <>
                     <FileText className="w-4.5 h-4.5 text-primary shrink-0" />
                     <span className="text-sm font-medium text-text truncate">
@@ -109,32 +90,13 @@ export function Layout({
 
           {/* Right: actions */}
           <div className="flex items-center gap-1.5 shrink-0">
-            {/* Direction toggle (only in split mode) */}
-            {isSplit && onDirectionToggle && (
-              <button
-                onClick={onDirectionToggle}
-                className="p-2 rounded-md text-text-secondary hover:text-text hover:bg-surface-alt/60 transition-colors"
-                title={splitDirection === 'horizontal' ? '切换为上下布局' : '切换为左右布局'}
-              >
-                {splitDirection === 'horizontal' ? (
-                  <Rows2 className="w-4.5 h-4.5" />
-                ) : (
-                  <Columns3 className="w-4.5 h-4.5" />
-                )}
-              </button>
-            )}
-
-            {/* Split button (only when file is open) */}
-            {currentFileName && onSplitToggle && (
+            {/* Split button (only when file is open, hidden in split mode) */}
+            {currentFileName && !isSplit && onSplitToggle && (
               <button
                 ref={splitButtonRef as React.RefObject<HTMLButtonElement>}
                 onClick={onSplitToggle}
-                className={`p-2 rounded-md transition-colors ${
-                  isSplit
-                    ? 'text-primary bg-primary/10'
-                    : 'text-text-secondary hover:text-text hover:bg-surface-alt/60'
-                }`}
-                title={isSplit ? '关闭分屏' : '分屏对比'}
+                className="p-2 rounded-md text-text-secondary hover:text-text hover:bg-surface-alt/60 transition-colors"
+                title="分屏对比"
               >
                 <Columns2 className="w-4.5 h-4.5" />
               </button>
@@ -245,17 +207,6 @@ export function Layout({
                 <User className="w-4.5 h-4.5" />
               </button>
             )}
-
-            {/* GitHub link */}
-            <a
-              href="https://github.com/anthropics/claude-code"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="p-2 rounded-md text-text-secondary hover:text-text hover:bg-surface-alt/60 transition-colors"
-              title="GitHub"
-            >
-              <ExternalLink className="w-4 h-4" />
-            </a>
           </div>
         </div>
       </header>

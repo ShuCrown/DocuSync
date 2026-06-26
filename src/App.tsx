@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Loader2, X } from 'lucide-react'
 import { Layout } from './components/Layout'
 import { FileUpload } from './components/FileUpload'
 import { FileHistory } from './components/FileHistory'
@@ -9,7 +9,6 @@ import { AccountPanel } from './components/AccountPanel'
 import { SelectionToolbar } from './components/SelectionToolbar'
 import { SplitPane } from './components/SplitPane'
 import { PaneHeader } from './components/PaneHeader'
-import { SplitPickerPopover } from './components/SplitPickerPopover'
 import { useFileUpload } from './hooks/useFileUpload'
 import { useFileHistory } from './hooks/useFileHistory'
 import { useSummary } from './hooks/useSummary'
@@ -28,10 +27,10 @@ export default function App() {
   const account = useAccount()
   const {
     mode: splitMode, direction: splitDirection, activePane,
-    paneA, paneB, splitRatio, pickerOpen,
-    openPicker, closePicker, enterSplit, exitSplit,
+    paneA, paneB, splitRatio,
+    enterSplit, enterSplitPicker, exitSplit,
     closePaneA, closePaneB, swapPanes,
-    setActivePane, toggleDirection, setSplitRatio, setPaneA,
+    setActivePane, toggleDirection, setSplitRatio, setPaneA, replacePaneB,
   } = useSplitView()
   const paneBRef = useRef(paneB)
   const [extractedText, setExtractedText] = useState('')
@@ -90,8 +89,8 @@ export default function App() {
   }, [closePaneB])
 
   const handleReplacePaneB = useCallback(() => {
-    openPicker()
-  }, [openPicker])
+    enterSplitPicker()
+  }, [enterSplitPicker])
 
   const handlePaneFocus = useCallback((pane: 'a' | 'b') => {
     setActivePane(pane)
@@ -152,17 +151,13 @@ export default function App() {
     if (splitMode === 'split') {
       exitSplit()
     } else {
-      openPicker()
+      captureSingleScroll()
+      if (!paneA && uploadedFile) {
+        setPaneA(uploadedFile)
+      }
+      enterSplitPicker()
     }
-  }, [splitMode, exitSplit, openPicker])
-
-  const handlePickerSelect = useCallback((fileB: UploadedFile) => {
-    captureSingleScroll()
-    if (!paneA && uploadedFile) {
-      setPaneA(uploadedFile)
-    }
-    enterSplit(fileB)
-  }, [paneA, uploadedFile, setPaneA, enterSplit, captureSingleScroll])
+  }, [splitMode, exitSplit, enterSplitPicker, captureSingleScroll, paneA, uploadedFile, setPaneA])
 
   const handlePickerUpload = useCallback(async (file: File) => {
     if (!isSupported(file)) return
@@ -183,7 +178,7 @@ export default function App() {
     }
   }, [paneA, uploadedFile, setPaneA, enterSplit, addHistory, captureSingleScroll])
 
-  const isSplit = splitMode === 'split' && paneA && paneB
+  const isSplit = splitMode === 'split' && paneA
 
   // Scroll position tracking — key by document identity so position follows the document on swap.
   const paneAScrollRef = useScrollPosition(
@@ -241,6 +236,56 @@ export default function App() {
     </div>
   ), [paneB, activePane, handlePaneBClose, handleReplacePaneB, handlePaneFocus, handleTextExtracted, paneBScrollRef])
 
+  // Picker view for pane B when no file is selected (same layout as home page)
+  const handlePickerFile = useCallback(async (file: File) => {
+    if (!isSupported(file)) return
+    await handlePickerUpload(file)
+  }, [handlePickerUpload])
+
+  const handlePickerHistorySelect = useCallback(async (record: FileRecord) => {
+    try {
+      const blob = await api.downloadDocument(record.id)
+      if (blob.size === 0) return
+      const file = new File([blob], record.name, { type: blob.type })
+      const url = URL.createObjectURL(file)
+      replacePaneB({ file, category: record.category, url, docId: record.id })
+      addHistory(file, 'unknown')
+    } catch {
+      // silently fail, user can retry
+    }
+  }, [replacePaneB, addHistory])
+
+  const paneBPickerElement = useMemo(() => (
+    <div className="h-full flex flex-col">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-surface-alt/40 shrink-0">
+        <span className="text-xs font-medium text-text-secondary">选择对比文档</span>
+        <button
+          onClick={handlePaneBClose}
+          className="p-1 rounded-md text-text-secondary hover:text-text hover:bg-surface-alt transition-colors"
+          title="关闭分屏"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      <div className="flex-1 overflow-auto flex items-start justify-center px-4 sm:px-6 py-8">
+        <div className="w-full max-w-2xl">
+          <FileUpload
+            onFile={handlePickerFile}
+            currentFile={null}
+            uploading={false}
+            error={null}
+          />
+          <FileHistory
+            history={history}
+            onSelect={handlePickerHistorySelect}
+            onRemove={removeHistory}
+            onClear={clearHistory}
+          />
+        </div>
+      </div>
+    </div>
+  ), [handlePickerFile, history, handlePickerHistorySelect, removeHistory, clearHistory, handlePaneBClose])
+
   return (
     <Layout
       currentFileName={paneA?.file.name ?? uploadedFile?.file.name ?? null}
@@ -255,10 +300,7 @@ export default function App() {
       email={account.email}
       onAccountOpen={handleAccountOpen}
       splitMode={splitMode}
-      splitDirection={splitDirection}
-      splitFileName={paneB?.file.name ?? null}
       onSplitToggle={handleSplitToggle}
-      onDirectionToggle={toggleDirection}
       splitButtonRef={splitButtonRef}
     >
       {!paneA && !uploadedFile ? (
@@ -286,7 +328,7 @@ export default function App() {
           onSwap={swapPanes}
           onDirectionChange={toggleDirection}
           paneA={paneAElement}
-          paneB={paneBElement}
+          paneB={paneB ? paneBElement : paneBPickerElement}
         />
       ) : (
         <div ref={handleSingleScrollRef} className="flex-1 overflow-auto">
@@ -319,7 +361,7 @@ export default function App() {
               <div className="w-full">
                 <div className="h-1.5 bg-surface-alt rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-primary rounded-full transition-all duration-300"
+                    className="h-full bg-primary rounded-full"
                     style={{ width: `${downloadProgress}%` }}
                   />
                 </div>
@@ -331,16 +373,6 @@ export default function App() {
           </div>
         </div>
       )}
-
-      {/* Split picker popover */}
-      <SplitPickerPopover
-        open={pickerOpen}
-        onClose={closePicker}
-        history={history}
-        onSelect={handlePickerSelect}
-        onUpload={handlePickerUpload}
-        anchorRef={splitButtonRef}
-      />
 
       <AccountPanel
         open={accountOpen}
