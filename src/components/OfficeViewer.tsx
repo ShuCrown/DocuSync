@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as mammoth from 'mammoth'
 import * as XLSX from 'xlsx'
 import DOMPurify from 'dompurify'
@@ -7,8 +7,19 @@ import { Loader2 } from 'lucide-react'
 interface OfficeViewerProps {
   file: File
   category: 'word' | 'excel' | 'powerpoint'
+  cacheKey?: string
   onTextExtracted?: (text: string) => void
 }
+
+interface OfficeCacheEntry {
+  category: 'word' | 'excel' | 'powerpoint'
+  html: string
+  tableData: string[][][]
+  sheetNames: string[]
+  extractedText: string
+}
+
+const officeCache = new Map<string, OfficeCacheEntry>()
 
 function inferTocLevel(text: string) {
   const normalized = text.replace(/\u00a0/g, ' ').trim()
@@ -56,15 +67,33 @@ function enhanceWordHtml(rawHtml: string) {
   return root.innerHTML
 }
 
-export function OfficeViewer({ file, category, onTextExtracted }: OfficeViewerProps) {
+export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: OfficeViewerProps) {
   const [html, setHtml] = useState<string>('')
   const [tableData, setTableData] = useState<string[][][]>([])
   const [sheetNames, setSheetNames] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const latestOnTextExtractedRef = useRef(onTextExtracted)
+
+  useEffect(() => {
+    latestOnTextExtractedRef.current = onTextExtracted
+  }, [onTextExtracted])
 
   useEffect(() => {
     let cancelled = false
+    const documentKey = cacheKey ?? `${category}:${file.name}:${file.size}:${file.lastModified}`
+    const cached = officeCache.get(documentKey)
+
+    if (cached && cached.category === category) {
+      setHtml(cached.html)
+      setTableData(cached.tableData)
+      setSheetNames(cached.sheetNames)
+      setError(null)
+      setLoading(false)
+      latestOnTextExtractedRef.current?.(cached.extractedText)
+      return () => { cancelled = true }
+    }
+
     const process = async () => {
       setLoading(true)
       setError(null)
@@ -131,11 +160,22 @@ export function OfficeViewer({ file, category, onTextExtracted }: OfficeViewerPr
               }),
             }
           )
+          const enhancedHtml = enhanceWordHtml(result.value)
+          const textResult = await mammoth.extractRawText({ arrayBuffer: buffer })
+          const extractedText = textResult.value
           if (!cancelled) {
-            setHtml(enhanceWordHtml(result.value))
-            // Extract text for summary
-            const textResult = await mammoth.extractRawText({ arrayBuffer: buffer })
-            onTextExtracted?.(textResult.value)
+            setHtml(enhancedHtml)
+            setSheetNames([])
+            setTableData([])
+            const nextEntry: OfficeCacheEntry = {
+              category,
+              html: enhancedHtml,
+              tableData: [],
+              sheetNames: [],
+              extractedText,
+            }
+            officeCache.set(documentKey, nextEntry)
+            latestOnTextExtractedRef.current?.(extractedText)
           }
         } else if (category === 'excel') {
           const workbook = XLSX.read(buffer, { type: 'array' })
@@ -150,17 +190,39 @@ export function OfficeViewer({ file, category, onTextExtracted }: OfficeViewerPr
               texts.push(`[${name}]\n${XLSX.utils.sheet_to_csv(sheet)}`)
             }
           }
+          const extractedText = texts.join('\n\n')
           if (!cancelled) {
+            setHtml('')
             setSheetNames(names)
             setTableData(sheets)
-            onTextExtracted?.(texts.join('\n\n'))
+            const nextEntry: OfficeCacheEntry = {
+              category,
+              html: '',
+              tableData: sheets,
+              sheetNames: names,
+              extractedText,
+            }
+            officeCache.set(documentKey, nextEntry)
+            latestOnTextExtractedRef.current?.(extractedText)
           }
         } else if (category === 'powerpoint') {
           // PPT: extract basic text content
           // For simplicity, show a placeholder with extracted text
+          const extractedText = 'PowerPoint 文件内容（需要服务端解析以获取完整文本）'
+          const htmlContent = '<p class="text-text-secondary">PPT 预览暂以文本内容展示</p>'
           if (!cancelled) {
-            setHtml('<p class="text-text-secondary">PPT 预览暂以文本内容展示</p>')
-            onTextExtracted?.('PowerPoint 文件内容（需要服务端解析以获取完整文本）')
+            setHtml(htmlContent)
+            setSheetNames([])
+            setTableData([])
+            const nextEntry: OfficeCacheEntry = {
+              category,
+              html: htmlContent,
+              tableData: [],
+              sheetNames: [],
+              extractedText,
+            }
+            officeCache.set(documentKey, nextEntry)
+            latestOnTextExtractedRef.current?.(extractedText)
           }
         }
       } catch (err) {
@@ -173,7 +235,7 @@ export function OfficeViewer({ file, category, onTextExtracted }: OfficeViewerPr
     }
     process()
     return () => { cancelled = true }
-  }, [file, category, onTextExtracted])
+  }, [file, category, cacheKey])
 
   if (loading) {
     return (

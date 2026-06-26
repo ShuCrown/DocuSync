@@ -33,7 +33,12 @@ export function DocumentViewer({ uploaded, onTextExtracted }: DocumentViewerProp
     case 'powerpoint':
       return (
         <div className="h-full">
-          <OfficeViewer file={file} category={category} onTextExtracted={onTextExtracted} />
+          <OfficeViewer
+            file={file}
+            category={category}
+            cacheKey={uploaded.docId ?? `${category}:${file.name}:${file.size}:${file.lastModified}`}
+            onTextExtracted={onTextExtracted}
+          />
         </div>
       )
 

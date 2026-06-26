@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -9,9 +9,15 @@ interface MarkdownViewerProps {
 }
 
 export function MarkdownViewer({ content, onTextExtracted }: MarkdownViewerProps) {
+  const latestOnTextExtractedRef = useRef(onTextExtracted)
+
   useEffect(() => {
-    onTextExtracted?.(content)
-  }, [content, onTextExtracted])
+    latestOnTextExtractedRef.current = onTextExtracted
+  }, [onTextExtracted])
+
+  useEffect(() => {
+    latestOnTextExtractedRef.current?.(content)
+  }, [content])
 
   return (
     <div className="markdown-body p-6 bg-surface-card overflow-auto h-full">

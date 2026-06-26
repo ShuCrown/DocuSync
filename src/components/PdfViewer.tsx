@@ -15,12 +15,17 @@ interface PdfViewerProps {
 
 export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const latestOnTextExtractedRef = useRef(onTextExtracted)
   const [pdf, setPdf] = useState<pdfjsLib.PDFDocumentProxy | null>(null)
   const [totalPages, setTotalPages] = useState(0)
   const [scale, setScale] = useState(1.5)
   const [currentPage, setCurrentPage] = useState(1)
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map())
   const renderTasks = useRef<Map<number, pdfjsLib.RenderTask>>(new Map())
+
+  useEffect(() => {
+    latestOnTextExtractedRef.current = onTextExtracted
+  }, [onTextExtracted])
 
   // Load PDF
   useEffect(() => {
@@ -39,7 +44,7 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
 
   // Extract text for summary
   useEffect(() => {
-    if (!pdf || !onTextExtracted) return
+    if (!pdf || !latestOnTextExtractedRef.current) return
     let cancelled = false
     const extract = async () => {
       const texts: string[] = []
@@ -52,12 +57,12 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
         texts.push(pageText)
       }
       if (!cancelled) {
-        onTextExtracted(texts.join('\n\n'))
+        latestOnTextExtractedRef.current?.(texts.join('\n\n'))
       }
     }
     extract()
     return () => { cancelled = true }
-  }, [pdf, onTextExtracted])
+  }, [pdf])
 
   // Render a single page into its container
   const renderPage = useCallback(async (num: number) => {
