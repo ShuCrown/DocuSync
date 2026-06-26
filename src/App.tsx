@@ -10,6 +10,7 @@ import { SelectionToolbar } from './components/SelectionToolbar'
 import { SplitPane } from './components/SplitPane'
 import { PaneHeader } from './components/PaneHeader'
 import { SimplePaneHeader } from './components/SimplePaneHeader'
+import { DuplicateConfirm } from './components/DuplicateConfirm'
 import { useFileUpload } from './hooks/useFileUpload'
 import { useFileHistory } from './hooks/useFileHistory'
 import { useSummary } from './hooks/useSummary'
@@ -40,6 +41,7 @@ export default function App() {
   const splitButtonRef = useRef<HTMLElement | null>(null)
   const singleScrollRef = useRef<HTMLDivElement | null>(null)
   const initialPaneAPos = useRef<{ x: number; y: number } | null>(null)
+  const [pendingDuplicate, setPendingDuplicate] = useState<File | null>(null)
 
   useEffect(() => {
     paneBRef.current = paneB
@@ -112,13 +114,27 @@ export default function App() {
     }
   }, [uploadedFile]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleFileWithHistory = useCallback(async (file: File) => {
+  // Check if a file with the same name already exists in history
+  const isDuplicate = useCallback((fileName: string) => {
+    return history.some((r) => r.name === fileName)
+  }, [history])
+
+  // Actually perform the upload (called after duplicate check passes)
+  const proceedUpload = useCallback(async (file: File) => {
     await handleFile(file)
     addHistory(file, 'unknown')
     clearSummary()
     setExtractedText('')
     setSummaryOpen(false)
   }, [handleFile, addHistory, clearSummary])
+
+  const handleFileWithHistory = useCallback(async (file: File) => {
+    if (isDuplicate(file.name)) {
+      setPendingDuplicate(file)
+      return
+    }
+    await proceedUpload(file)
+  }, [isDuplicate, proceedUpload])
 
   const handleClear = useCallback(() => {
     if (splitMode === 'split') {
@@ -146,6 +162,7 @@ export default function App() {
   const handleAccountClose = useCallback(() => {
     setAccountOpen(false)
   }, [])
+
 
   // Split view handlers
   const handleSplitToggle = useCallback(() => {
@@ -240,8 +257,27 @@ export default function App() {
   // Picker view for pane B when no file is selected (same layout as home page)
   const handlePickerFile = useCallback(async (file: File) => {
     if (!isSupported(file)) return
+    if (isDuplicate(file.name)) {
+      setPendingDuplicate(file)
+      return
+    }
     await handlePickerUpload(file)
-  }, [handlePickerUpload])
+  }, [isDuplicate, handlePickerUpload])
+
+  const handleDuplicateConfirm = useCallback(async () => {
+    const file = pendingDuplicate
+    setPendingDuplicate(null)
+    if (!file) return
+    if (isSplit) {
+      await handlePickerUpload(file)
+    } else {
+      await proceedUpload(file)
+    }
+  }, [pendingDuplicate, isSplit, handlePickerUpload, proceedUpload])
+
+  const handleDuplicateCancel = useCallback(() => {
+    setPendingDuplicate(null)
+  }, [])
 
   const handlePickerHistorySelect = useCallback(async (record: FileRecord) => {
     try {
@@ -396,6 +432,15 @@ export default function App() {
 
       {/* Selection toolbar for AI Q&A */}
       {activeFile && <SelectionToolbar />}
+
+      {/* Duplicate file confirmation */}
+      {pendingDuplicate && (
+        <DuplicateConfirm
+          fileName={pendingDuplicate.name}
+          onConfirm={handleDuplicateConfirm}
+          onCancel={handleDuplicateCancel}
+        />
+      )}
     </Layout>
   )
 }
