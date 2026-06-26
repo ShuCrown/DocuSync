@@ -15,6 +15,26 @@ interface OfficeViewerProps {
 /** Cache for extracted text (used by AI summary) */
 const textCache = new Map<string, string>()
 
+function normalizeDocxImageSvgs(container: HTMLElement) {
+  container.querySelectorAll<SVGSVGElement>('svg').forEach(svg => {
+    const containsImage = Boolean(svg.querySelector('image'))
+
+    if (containsImage) {
+      svg.classList.add('docx-render-image-svg')
+      svg.setAttribute('preserveAspectRatio', 'xMidYMid meet')
+    }
+
+    if (!svg.getAttribute('viewBox')) {
+      const width = Number.parseFloat(svg.getAttribute('width') ?? '')
+      const height = Number.parseFloat(svg.getAttribute('height') ?? '')
+
+      if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) {
+        svg.setAttribute('viewBox', `0 0 ${width} ${height}`)
+      }
+    }
+  })
+}
+
 export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: OfficeViewerProps) {
   const [tableData, setTableData] = useState<string[][][]>([])
   const [sheetNames, setSheetNames] = useState<string[]>([])
@@ -60,6 +80,14 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
           setTimeout(() => reject(new Error('文档渲染超时')), 30000)
         )
         await Promise.race([renderPromise, timeoutPromise])
+
+        // docx-preview measures VML drawings in requestAnimationFrame and writes
+        // fixed SVG width/height attributes. Normalize after that pass so CSS can
+        // scale document images with the preview pane.
+        requestAnimationFrame(() => {
+          normalizeDocxImageSvgs(el)
+          requestAnimationFrame(() => normalizeDocxImageSvgs(el))
+        })
 
         // Extract text for AI summary (reuse cached if available)
         let extractedText = textCache.get(documentKey)

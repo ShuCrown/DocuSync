@@ -346,11 +346,19 @@ body {
   height: auto !important;
 }
 
-/* docx-preview wraps images in <svg> containers with fixed inline width — force
-   them to scale with the content area */
+/* docx-preview wraps VML images in <svg> with fixed width/height attributes.
+   Marked image SVGs should fill the readable area and shrink with the pane. */
 .docx-render-container svg {
   max-width: 100% !important;
   height: auto !important;
+}
+
+.docx-render-container svg.docx-render-image-svg {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+  margin: 1em auto !important;
 }
 
 /* Table fallback styling when the document doesn't specify borders */
