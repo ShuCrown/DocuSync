@@ -11,11 +11,15 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@hono/node-server": "^1.14.0",
+    "better-sqlite3": "^11.0.0",
     "hono": "^4.12.26",
-    "nanoid": "^5.1.5"
+    "nanoid": "^5.1.5",
+    "tsx": "^4.19.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260621.1",
+    "@types/better-sqlite3": "^7.6.12",
     "typescript": "^6.0.3",
     "wrangler": "^4.103.0"
   }

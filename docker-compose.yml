@@ -1,0 +1,33 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - docusync-data:/data
+    environment:
+      - DB_PATH=/data/db/docusync.sqlite
+      - FILES_DIR=/data/files
+      # Uncomment to enable email service:
+      # - MAIL_SERVICE_URL=https://your-mail-service
+      # - MAIL_SERVICE_KEY=your-key
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  nginx:
+    build:
+      context: .
+      dockerfile: Dockerfile.nginx
+    ports:
+      - "80:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  docusync-data:
