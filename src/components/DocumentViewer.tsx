@@ -1,13 +1,26 @@
-import { useState, useEffect } from 'react'
-import { PdfViewer } from './PdfViewer'
-import { MarkdownViewer } from './MarkdownViewer'
-import { OfficeViewer } from './OfficeViewer'
-import { AlertCircle } from 'lucide-react'
+import { useState, useEffect, Suspense, lazy } from 'react'
+import { AlertCircle, Loader2 } from 'lucide-react'
 import type { UploadedFile } from '../hooks/useFileUpload'
+
+// Lazy-load heavy viewer components — each pulls in large dependencies
+// (pdfjs-dist, xlsx, docx-preview, react-markdown, etc.) that should
+// only be downloaded when the user actually opens that file type.
+const PdfViewer = lazy(() => import('./PdfViewer').then(m => ({ default: m.PdfViewer })))
+const OfficeViewer = lazy(() => import('./OfficeViewer').then(m => ({ default: m.OfficeViewer })))
+const MarkdownViewer = lazy(() => import('./MarkdownViewer').then(m => ({ default: m.MarkdownViewer })))
 
 interface DocumentViewerProps {
   uploaded: UploadedFile
   onTextExtracted: (text: string) => void
+}
+
+function ViewerLoading() {
+  return (
+    <div className="flex items-center justify-center p-12 text-text-secondary">
+      <Loader2 className="w-6 h-6 animate-spin mr-2" />
+      加载预览组件...
+    </div>
+  )
 }
 
 export function DocumentViewer({ uploaded, onTextExtracted }: DocumentViewerProps) {
@@ -17,14 +30,18 @@ export function DocumentViewer({ uploaded, onTextExtracted }: DocumentViewerProp
     case 'pdf':
       return (
         <div className="h-full">
-          <PdfViewer url={url} onTextExtracted={onTextExtracted} />
+          <Suspense fallback={<ViewerLoading />}>
+            <PdfViewer url={url} onTextExtracted={onTextExtracted} />
+          </Suspense>
         </div>
       )
 
     case 'markdown':
       return (
         <div className="h-full">
-          <MarkdownViewerWrapper file={file} onTextExtracted={onTextExtracted} />
+          <Suspense fallback={<ViewerLoading />}>
+            <MarkdownViewerWrapper file={file} onTextExtracted={onTextExtracted} />
+          </Suspense>
         </div>
       )
 
@@ -33,12 +50,14 @@ export function DocumentViewer({ uploaded, onTextExtracted }: DocumentViewerProp
     case 'powerpoint':
       return (
         <div className="h-full">
-          <OfficeViewer
-            file={file}
-            category={category}
-            cacheKey={uploaded.docId ?? `${category}:${file.name}:${file.size}:${file.lastModified}`}
-            onTextExtracted={onTextExtracted}
-          />
+          <Suspense fallback={<ViewerLoading />}>
+            <OfficeViewer
+              file={file}
+              category={category}
+              cacheKey={uploaded.docId ?? `${category}:${file.name}:${file.size}:${file.lastModified}`}
+              onTextExtracted={onTextExtracted}
+            />
+          </Suspense>
         </div>
       )
 
@@ -78,5 +97,9 @@ function MarkdownViewerWrapper({
     )
   }
 
-  return <MarkdownViewer content={content} onTextExtracted={onTextExtracted} />
+  return (
+    <Suspense fallback={<ViewerLoading />}>
+      <MarkdownViewer content={content} onTextExtracted={onTextExtracted} />
+    </Suspense>
+  )
 }

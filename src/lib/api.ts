@@ -2,13 +2,45 @@ import { getDeviceId } from './device-id'
 
 const BASE = '/api'
 
+// Simple in-memory cache for GET requests to reduce repeated API calls.
+// Useful for high-latency connections (e.g. mainland China → Cloudflare).
+const cache = new Map<string, { data: unknown; expires: number }>()
+const CACHE_TTL = 30_000 // 30 seconds
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const isGet = !init?.method || init.method === 'GET'
+  const cacheKey = isGet ? path : ''
+
+  // Return cached response for GET requests within TTL
+  if (cacheKey) {
+    const hit = cache.get(cacheKey)
+    if (hit && hit.expires > Date.now()) {
+      return hit.data as T
+    }
+  }
+
   const res = await fetch(`${BASE}${path}`, init)
   if (!res.ok) {
     const body = await res.json().catch(() => ({})) as { error?: string }
     throw new Error(body.error ?? `Request failed: ${res.status}`)
   }
-  return res.json()
+  const data = await res.json() as T
+
+  // Cache successful GET responses
+  if (cacheKey) {
+    cache.set(cacheKey, { data, expires: Date.now() + CACHE_TTL })
+  }
+
+  return data
+}
+
+/** Invalidate cached GET responses that match a path prefix. */
+function invalidateCache(prefix: string) {
+  for (const key of cache.keys()) {
+    if (key.startsWith(prefix)) {
+      cache.delete(key)
+    }
+  }
 }
 
 // Device
@@ -39,10 +71,12 @@ export async function uploadDocument(file: File, extractedText?: string) {
     formData.append('extractedText', extractedText)
   }
 
-  return request<{ id: string; name: string; size: number; category: string; r2Key: string }>(
+  const result = await request<{ id: string; name: string; size: number; category: string; r2Key: string }>(
     '/documents/upload',
     { method: 'POST', body: formData }
   )
+  invalidateCache('/documents')
+  return result
 }
 
 export async function listDocuments() {
@@ -52,9 +86,11 @@ export async function listDocuments() {
 
 export async function deleteDocument(docId: string) {
   const deviceId = getDeviceId()
-  return request<{ success: true }>(`/documents/${docId}?deviceId=${encodeURIComponent(deviceId)}`, {
+  const result = await request<{ success: true }>(`/documents/${docId}?deviceId=${encodeURIComponent(deviceId)}`, {
     method: 'DELETE',
   })
+  invalidateCache('/documents')
+  return result
 }
 
 export async function downloadDocument(
