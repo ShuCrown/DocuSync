@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { nanoid } from 'nanoid'
 import { sendBindEmail, sendRecoveryEmail } from './lib/mailer'
+import { QUOTA, checkQuota, checkRateLimit, maybeCleanupRateLimits } from './lib/quota'
 
 export interface Bindings {
   FILES_BUCKET: R2Bucket
@@ -64,6 +65,23 @@ app.post('/api/documents/upload', async (c) => {
     return c.json({ error: 'deviceId required' }, 400)
   }
 
+  // 服务端文件大小校验
+  if (file.size > QUOTA.MAX_FILE_SIZE) {
+    return c.json({ error: `文件大小超过限制（最大 ${QUOTA.MAX_FILE_SIZE / 1024 / 1024}MB）` }, 400)
+  }
+
+  // 限流检查
+  const rl = await checkRateLimit(c.env.DB, deviceId, 'upload')
+  if (!rl.allowed) {
+    return c.json({ error: '请求过于频繁，请稍后重试', code: 'RATE_LIMITED', retryAfter: rl.resetAt }, 429)
+  }
+
+  // 配额检查
+  const quota = await checkQuota(c.env.DB, deviceId)
+  if (!quota.ok) {
+    return c.json({ error: quota.reason, code: 'QUOTA_EXCEEDED', usage: quota.usage }, 403)
+  }
+
   // Ensure device exists
   const device = await c.env.DB.prepare(
     'SELECT id FROM devices WHERE id = ?'
@@ -97,6 +115,9 @@ app.post('/api/documents/upload', async (c) => {
   await c.env.DB.prepare(
     'INSERT INTO documents (id, device_id, name, size, category, r2_key, extracted_text) VALUES (?, ?, ?, ?, ?, ?, ?)'
   ).bind(docId, deviceId, file.name, file.size, category, r2Key, extractedText ?? null).run()
+
+  // 概率清理过期限流记录
+  await maybeCleanupRateLimits(c.env.DB)
 
   return c.json({ id: docId, name: file.name, size: file.size, category, r2Key })
 })
@@ -195,12 +216,22 @@ app.post('/api/documents/:id/summarize', async (c) => {
     return c.json({ summary: cached.content, cached: true })
   }
 
+  // 获取文档信息（含 deviceId 用于限流）
+  const doc = await c.env.DB.prepare(
+    'SELECT device_id, extracted_text FROM documents WHERE id = ?'
+  ).bind(docId).first<{ device_id: string; extracted_text: string | null }>()
+
+  // 限流检查
+  if (doc?.device_id) {
+    const rl = await checkRateLimit(c.env.DB, doc.device_id, 'summarize')
+    if (!rl.allowed) {
+      return c.json({ error: '请求过于频繁，请稍后重试', code: 'RATE_LIMITED', retryAfter: rl.resetAt }, 429)
+    }
+  }
+
   // Get text from body or from document record
   let text = inputText
   if (!text) {
-    const doc = await c.env.DB.prepare(
-      'SELECT extracted_text FROM documents WHERE id = ?'
-    ).bind(docId).first<{ extracted_text: string | null }>()
     text = doc?.extracted_text ?? ''
   }
 
