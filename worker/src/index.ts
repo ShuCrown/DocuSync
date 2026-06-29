@@ -505,4 +505,163 @@ app.delete('/api/account/unbind', async (c) => {
   return c.json({ success: true })
 })
 
+// ============================================================
+// Shares
+// ============================================================
+
+const EXPIRY_MAP: Record<string, number> = {
+  '1h': 60 * 60,
+  '24h': 24 * 60 * 60,
+  '7d': 7 * 24 * 60 * 60,
+  '30d': 30 * 24 * 60 * 60,
+  never: 365 * 24 * 60 * 60, // 1 year
+}
+
+// POST /api/shares
+app.post('/api/shares', async (c) => {
+  const body = await c.req.json<{ documentId?: string; deviceId?: string; expiresIn?: string }>()
+  const { documentId, deviceId, expiresIn } = body
+
+  if (!documentId || !deviceId) {
+    return c.json({ error: '缺少必要参数' }, 400)
+  }
+
+  const expiry = expiresIn ?? '24h'
+  const ttl = EXPIRY_MAP[expiry]
+  if (!ttl) {
+    return c.json({ error: '无效的过期选项' }, 400)
+  }
+
+  // Verify document belongs to device
+  const doc = await c.env.DB.prepare(
+    'SELECT id, name FROM documents WHERE id = ? AND device_id = ?'
+  ).bind(documentId, deviceId).first<{ id: string; name: string }>()
+
+  if (!doc) {
+    return c.json({ error: '文档不存在' }, 404)
+  }
+
+  const now = Math.floor(Date.now() / 1000)
+  const shareId = nanoid(21)
+
+  await c.env.DB.prepare(
+    'INSERT INTO shares (id, document_id, device_id, expires_at) VALUES (?, ?, ?, ?)'
+  ).bind(shareId, documentId, deviceId, now + ttl).run()
+
+  return c.json({
+    id: shareId,
+    document_id: documentId,
+    expires_at: now + ttl,
+    view_count: 0,
+    created_at: now,
+  })
+})
+
+// GET /api/documents/:id/shares
+app.get('/api/documents/:id/shares', async (c) => {
+  const docId = c.req.param('id')
+  const deviceId = c.req.query('deviceId')
+  if (!deviceId) {
+    return c.json({ error: 'deviceId required' }, 400)
+  }
+
+  const { results } = await c.env.DB.prepare(
+    'SELECT id, document_id, expires_at, max_views, view_count, created_at FROM shares WHERE document_id = ? AND device_id = ? ORDER BY created_at DESC'
+  ).bind(docId, deviceId).all<{
+    id: string; document_id: string; expires_at: number; max_views: number | null; view_count: number; created_at: number
+  }>()
+
+  return c.json(results)
+})
+
+// DELETE /api/shares/:id
+app.delete('/api/shares/:id', async (c) => {
+  const shareId = c.req.param('id')
+  const deviceId = c.req.query('deviceId')
+  if (!deviceId) {
+    return c.json({ error: 'deviceId required' }, 400)
+  }
+
+  const share = await c.env.DB.prepare(
+    'SELECT id FROM shares WHERE id = ? AND device_id = ?'
+  ).bind(shareId, deviceId).first()
+
+  if (!share) {
+    return c.json({ error: '分享链接不存在' }, 404)
+  }
+
+  await c.env.DB.prepare('DELETE FROM shares WHERE id = ?').bind(shareId).run()
+  return c.json({ success: true })
+})
+
+// GET /api/share/:token/info
+app.get('/api/share/:token/info', async (c) => {
+  const token = c.req.param('token')
+  const now = Math.floor(Date.now() / 1000)
+
+  const share = await c.env.DB.prepare(
+    `SELECT s.id, s.expires_at, s.view_count, d.name, d.category
+     FROM shares s JOIN documents d ON s.document_id = d.id
+     WHERE s.id = ?`
+  ).bind(token).first<{
+    id: string; expires_at: number; view_count: number; name: string; category: string
+  }>()
+
+  if (!share) {
+    return c.json({ error: '分享链接不存在或已失效' }, 404)
+  }
+
+  if (share.expires_at <= now) {
+    return c.json({ error: '分享链接已过期' }, 410)
+  }
+
+  return c.json({
+    name: share.name,
+    category: share.category,
+    expiresAt: share.expires_at,
+    viewCount: share.view_count,
+  })
+})
+
+// GET /api/share/:token — serve shared content
+app.get('/api/share/:token', async (c) => {
+  const token = c.req.param('token')
+  const now = Math.floor(Date.now() / 1000)
+
+  const share = await c.env.DB.prepare(
+    `SELECT s.id, s.document_id, s.expires_at, s.view_count, d.name, d.category, d.r2_key
+     FROM shares s JOIN documents d ON s.document_id = d.id
+     WHERE s.id = ?`
+  ).bind(token).first<{
+    id: string; document_id: string; expires_at: number; view_count: number; name: string; category: string; r2_key: string
+  }>()
+
+  if (!share) {
+    return c.json({ error: '分享链接不存在或已失效' }, 404)
+  }
+
+  if (share.expires_at <= now) {
+    return c.json({ error: '分享链接已过期' }, 410)
+  }
+
+  // Increment view count
+  await c.env.DB.prepare(
+    'UPDATE shares SET view_count = view_count + 1 WHERE id = ?'
+  ).bind(share.id).run()
+
+  // Read file from R2
+  const obj = await c.env.FILES_BUCKET.get(share.r2_key)
+  if (!obj) {
+    return c.json({ error: '文件不存在' }, 404)
+  }
+
+  return new Response(obj.body, {
+    headers: {
+      'Content-Type': obj.httpMetadata?.contentType ?? 'application/octet-stream',
+      'Content-Disposition': `inline; filename="${encodeURIComponent(share.name)}"`,
+      'Content-Length': String(obj.size),
+    },
+  })
+})
+
 export default app
