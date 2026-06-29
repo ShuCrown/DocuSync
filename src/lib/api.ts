@@ -152,3 +152,53 @@ export async function unbindEmail() {
     body: JSON.stringify({ deviceId }),
   })
 }
+
+// Shares
+export interface ShareRecord {
+  id: string
+  document_id: string
+  expires_at: number
+  view_count: number
+  created_at: number
+}
+
+export interface ShareInfo {
+  name: string
+  category: string
+  expiresAt: number
+  viewCount: number
+}
+
+export async function createShare(docId: string, expiresIn: string): Promise<ShareRecord> {
+  const deviceId = getDeviceId()
+  return request<ShareRecord>('/shares', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ documentId: docId, deviceId, expiresIn }),
+  })
+}
+
+export async function listShares(docId: string): Promise<ShareRecord[]> {
+  const deviceId = getDeviceId()
+  return request<ShareRecord[]>(`/documents/${docId}/shares?deviceId=${encodeURIComponent(deviceId)}`)
+}
+
+export async function deleteShare(shareId: string): Promise<{ success: true }> {
+  const deviceId = getDeviceId()
+  return request<{ success: true }>(`/shares/${shareId}?deviceId=${encodeURIComponent(deviceId)}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function getShareInfo(token: string): Promise<ShareInfo> {
+  return request<ShareInfo>(`/share/${token}/info`)
+}
+
+export async function getShareContent(token: string): Promise<Response> {
+  const res = await fetch(`${BASE}/share/${token}`)
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(body.error ?? `Request failed: ${res.status}`)
+  }
+  return res
+}

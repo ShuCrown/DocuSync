@@ -45,3 +45,18 @@ CREATE TABLE IF NOT EXISTS verification_codes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_vcodes_email ON verification_codes(email, purpose, used);
+
+-- 分享链接表
+CREATE TABLE IF NOT EXISTS shares (
+  id TEXT PRIMARY KEY,
+  document_id TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  max_views INTEGER,
+  view_count INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_shares_token ON shares(id);
+CREATE INDEX IF NOT EXISTS idx_shares_document ON shares(document_id);

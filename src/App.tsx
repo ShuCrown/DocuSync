@@ -10,6 +10,7 @@ import { SplitPane } from './components/SplitPane'
 import { PaneHeader } from './components/PaneHeader'
 import { SimplePaneHeader } from './components/SimplePaneHeader'
 import { DuplicateConfirm } from './components/DuplicateConfirm'
+import { ShareDialog } from './components/ShareDialog'
 import { useFileUpload } from './hooks/useFileUpload'
 import { useFileHistory } from './hooks/useFileHistory'
 import { useAccount } from './hooks/useAccount'
@@ -33,6 +34,7 @@ export default function App() {
   } = useSplitView()
   const paneBRef = useRef(paneB)
   const [accountOpen, setAccountOpen] = useState(false)
+  const [shareDoc, setShareDoc] = useState<{ id: string; name: string } | null>(null)
   const splitButtonRef = useRef<HTMLElement | null>(null)
   const singleScrollRef = useRef<HTMLDivElement | null>(null)
   const initialPaneAPos = useRef<{ x: number; y: number } | null>(null)
@@ -129,6 +131,14 @@ export default function App() {
     setAccountOpen(false)
   }, [])
 
+  const handleShareOpen = useCallback((docId: string, docName: string) => {
+    setShareDoc({ id: docId, name: docName })
+  }, [])
+
+  const handleShareClose = useCallback(() => {
+    setShareDoc(null)
+  }, [])
+
 
   // Split view handlers
   const handleSplitToggle = useCallback(() => {
@@ -191,6 +201,7 @@ export default function App() {
         isActive={activePane === 'a'}
         onClose={handlePaneAClose}
         onFocus={handlePaneFocus}
+        onShare={paneA?.docId ? () => handleShareOpen(paneA.docId!, paneA.file.name) : undefined}
       />
       <div ref={paneAScrollRef} className="flex-1 overflow-auto">
         <DocumentViewer
@@ -199,7 +210,7 @@ export default function App() {
         />
       </div>
     </div>
-  ), [paneA, activePane, handlePaneAClose, handlePaneFocus, paneAScrollRef])
+  ), [paneA, activePane, handlePaneAClose, handlePaneFocus, paneAScrollRef, handleShareOpen])
 
   const paneBElement = useMemo(() => (
     <div className="h-full flex flex-col">
@@ -210,6 +221,7 @@ export default function App() {
         onClose={handlePaneBClose}
         onReplace={handleReplacePaneB}
         onFocus={handlePaneFocus}
+        onShare={paneB?.docId ? () => handleShareOpen(paneB.docId!, paneB.file.name) : undefined}
       />
       <div ref={paneBScrollRef} className="flex-1 overflow-auto">
         <DocumentViewer
@@ -218,7 +230,7 @@ export default function App() {
         />
       </div>
     </div>
-  ), [paneB, activePane, handlePaneBClose, handleReplacePaneB, handlePaneFocus, paneBScrollRef])
+  ), [paneB, activePane, handlePaneBClose, handleReplacePaneB, handlePaneFocus, paneBScrollRef, handleShareOpen])
 
   // Picker view for pane B when no file is selected (same layout as home page)
   const handlePickerFile = useCallback(async (file: File) => {
@@ -334,7 +346,9 @@ export default function App() {
         <div className="flex-1 flex flex-col min-h-0">
           <SimplePaneHeader
             fileName={singleFile!.file.name}
+            docId={singleFile?.docId}
             onClose={handleClear}
+            onShare={singleFile?.docId ? () => handleShareOpen(singleFile.docId!, singleFile.file.name) : undefined}
           />
           <div ref={handleSingleScrollRef} className="flex-1 overflow-auto">
             <DocumentViewer
@@ -380,6 +394,15 @@ export default function App() {
         onRecover={account.recoverAccount}
         onUnbind={account.unbindEmail}
       />
+
+      {shareDoc && (
+        <ShareDialog
+          open={!!shareDoc}
+          onClose={handleShareClose}
+          docId={shareDoc.id}
+          fileName={shareDoc.name}
+        />
+      )}
 
       {/* Selection toolbar for AI Q&A */}
       {activeFile && <SelectionToolbar />}
