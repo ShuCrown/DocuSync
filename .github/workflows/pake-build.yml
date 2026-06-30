@@ -42,18 +42,16 @@ jobs:
           pake dist/index.pake.html
           --name DocuSync
           --icon public/favicon.svg
-          --bundle dmg
-          --output pake-dist
+          --targets apple
           --width 1200
           --height 800
-          --mac-architecture arm64
           --hide-title-bar
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: DocuSync-macos-arm64
-          path: pake-dist/**/*.dmg
+          path: DocuSync.dmg
           if-no-files-found: error
 
   build-windows:
@@ -82,8 +80,7 @@ jobs:
           pake dist/index.pake.html
           --name DocuSync
           --icon public/favicon.svg
-          --bundle nsis
-          --output pake-dist
+          --targets x64
           --width 1200
           --height 800
 
@@ -92,6 +89,6 @@ jobs:
         with:
           name: DocuSync-windows-x64
           path: |
-            pake-dist/**/*.exe
-            pake-dist/**/*.msi
+            DocuSync_x64.msi
+            DocuSync_x64.exe
           if-no-files-found: error
