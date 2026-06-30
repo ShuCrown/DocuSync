@@ -50,7 +50,7 @@ export function Layout({
   }, [historyOpen])
 
   return (
-    <div className="h-screen bg-surface flex flex-col overflow-hidden">
+    <div data-split={isSplit || undefined} className="h-screen bg-surface flex flex-col overflow-hidden">
       {/* Header */}
       <header className="border-b border-border bg-surface-card/80 backdrop-blur-sm relative z-30">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
