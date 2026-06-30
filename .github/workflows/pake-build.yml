@@ -41,6 +41,8 @@ jobs:
 
       - name: Build frontend
         run: npm run build:${{ inputs.mode || 'pake' }}
+        env:
+          VITE_API_BASE: https://docusync-api.shucrown.workers.dev
 
       - name: Install pake-cli
         run: npm install -g pake-cli
@@ -85,6 +87,8 @@ jobs:
 
       - name: Build frontend
         run: npm run build:${{ inputs.mode || 'pake' }}
+        env:
+          VITE_API_BASE: https://docusync-api.shucrown.workers.dev
 
       - name: Install pake-cli
         run: npm install -g pake-cli
