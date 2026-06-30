@@ -1,6 +1,6 @@
 import { getDeviceId } from './device-id'
 
-const BASE = '/api'
+const BASE = import.meta.env.VITE_API_BASE || '/api'
 
 // Simple in-memory cache for GET requests to reduce repeated API calls.
 // Useful for high-latency connections (e.g. mainland China → Cloudflare).
