@@ -1,6 +1,9 @@
 name: Pake Desktop Build
 
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       mode:
@@ -11,9 +14,14 @@ on:
         options:
           - pake
           - pake-private
+      debug:
+        description: "Enable debug build (DevTools)"
+        required: false
+        default: false
+        type: boolean
 
 env:
-  NODE_VERSION: "20"
+  NODE_VERSION: "22"
 
 jobs:
   build-macos:
@@ -46,12 +54,16 @@ jobs:
           --width 1200
           --height 800
           --hide-title-bar
+          ${{ inputs.debug == true && '--debug' || '' }}
+
+      - name: List build output
+        run: find . -name "*.dmg" -o -name "*.app" 2>/dev/null | head -20
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DocuSync-macos-arm64
-          path: DocuSync.dmg
+          name: DocuSync-macos-arm64${{ inputs.debug == true && '-debug' || '' }}
+          path: "**/*.dmg"
           if-no-files-found: error
 
   build-windows:
@@ -83,12 +95,16 @@ jobs:
           --targets x64
           --width 1200
           --height 800
+          ${{ inputs.debug == true && '--debug' || '' }}
+
+      - name: List build output
+        run: Get-ChildItem -Recurse -Include *.msi,*.exe | Select-Object -ExpandProperty FullName
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DocuSync-windows-x64
+          name: DocuSync-windows-x64${{ inputs.debug == true && '-debug' || '' }}
           path: |
-            DocuSync_x64.msi
-            DocuSync_x64.exe
+            **/*.msi
+            **/*.exe
           if-no-files-found: error
