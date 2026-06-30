@@ -6,6 +6,8 @@ export default defineConfig(({ mode }) => {
   const isPake = mode === 'pake'
 
   return {
+    // Use relative paths for Pake/Tauri local file loading (file:// protocol)
+    base: isPake ? './' : '/',
     plugins: [react(), tailwindcss()],
     build: {
       // Raise warning threshold — large libraries (pdfjs, xlsx) exceed the default 500 kB
