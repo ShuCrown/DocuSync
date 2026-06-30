@@ -111,25 +111,13 @@ export function SelectionToolbar() {
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
 
-    // Open popup — sidebar style in Tauri, centered popup in browser
-    const isTauri = '__TAURI__' in window
-    if (isTauri) {
-      const sidebarW = 450
-      const sidebarH = screen.availHeight
-      const sidebarLeft = screen.availWidth - sidebarW
-      window.open(
-        service.url,
-        `ai-${service.id}`,
-        `width=${sidebarW},height=${sidebarH},left=${sidebarLeft},top=0,scrollbars=yes,resizable=yes`,
-      )
-    } else {
-      const w = 900, h = 700
-      window.open(
-        service.url,
-        `ai-${service.id}`,
-        `width=${w},height=${h},left=${Math.round((screen.width - w) / 2)},top=${Math.round((screen.height - h) / 2)},scrollbars=yes,resizable=yes`,
-      )
-    }
+    // Open popup — in Pake with --multi-window, opens as a new window within the app
+    const w = 900, h = 700
+    window.open(
+      service.url,
+      `ai-${service.id}`,
+      `width=${w},height=${h},left=${Math.round((screen.width - w) / 2)},top=${Math.round((screen.height - h) / 2)},scrollbars=yes,resizable=yes`,
+    )
 
     window.getSelection()?.removeAllRanges()
     setPos(null)

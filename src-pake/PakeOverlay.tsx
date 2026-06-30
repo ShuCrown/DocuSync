@@ -269,7 +269,7 @@ export function PakeOverlay() {
               className="flex items-center justify-center gap-2 w-full py-2.5 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary-dark transition-colors"
             >
               <ExternalLink className="w-4 h-4" />
-              在新窗口中打开 {qa.serviceName}
+              打开 {qa.serviceName}
             </button>
             <button
               onClick={() => {
