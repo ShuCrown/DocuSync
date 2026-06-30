@@ -55,6 +55,7 @@ jobs:
           --height 800
           --hide-title-bar
           --use-local-file
+          --new-window
           ${{ inputs.debug == true && '--debug' || '' }}
 
       - name: List build output
@@ -97,6 +98,7 @@ jobs:
           --width 1200
           --height 800
           --use-local-file
+          --new-window
           ${{ inputs.debug == true && '--debug' || '' }}
 
       - name: List build output
