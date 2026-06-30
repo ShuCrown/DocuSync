@@ -1,0 +1,97 @@
+name: Pake Desktop Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Build mode"
+        required: true
+        default: "pake"
+        type: choice
+        options:
+          - pake
+          - pake-private
+
+env:
+  NODE_VERSION: "20"
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    name: Build macOS ARM64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build:${{ inputs.mode || 'pake' }}
+
+      - name: Install pake-cli
+        run: npm install -g pake-cli
+
+      - name: Build macOS app
+        run: >-
+          pake dist/index.pake.html
+          --name DocuSync
+          --icon public/favicon.svg
+          --bundle dmg
+          --output pake-dist
+          --width 1200
+          --height 800
+          --mac-architecture arm64
+          --hide-title-bar
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DocuSync-macos-arm64
+          path: pake-dist/**/*.dmg
+          if-no-files-found: error
+
+  build-windows:
+    runs-on: windows-latest
+    name: Build Windows x64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build:${{ inputs.mode || 'pake' }}
+
+      - name: Install pake-cli
+        run: npm install -g pake-cli
+
+      - name: Build Windows app
+        run: >-
+          pake dist/index.pake.html
+          --name DocuSync
+          --icon public/favicon.svg
+          --bundle nsis
+          --output pake-dist
+          --width 1200
+          --height 800
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DocuSync-windows-x64
+          path: |
+            pake-dist/**/*.exe
+            pake-dist/**/*.msi
+          if-no-files-found: error
