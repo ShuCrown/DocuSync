@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 use serde::Serialize;
-use tauri::{Emitter, Manager, State, WebviewUrl, LogicalPosition, LogicalSize, WebviewBuilder};
+use tauri::{Emitter, Manager, State, WebviewUrl, LogicalPosition, LogicalSize, WebviewBuilder, Webview};
 
 // --- Initialization script for the DocuSync webview: route window.open() to the AI chat sidebar ---
 //     Only intercepts http/https URLs so that blob:, data:, file:, and other non-web URLs
@@ -167,8 +167,16 @@ fn get_main_size(app: tauri::AppHandle) -> Result<(f64, f64), String> {
     main_size(&app)
 }
 
+/// Find a child webview by label on the main window.
+/// In Tauri v2 child webviews created via `Window::add_child` are not returned by
+/// `Manager::get_webview_window`; they live in the parent window's `webviews()` list.
+fn get_child_webview(app: &tauri::AppHandle, label: &str) -> Option<Webview> {
+    let main_window = app.get_window("main")?;
+    main_window.webviews().into_iter().find(|w| w.label() == label)
+}
+
 // Push the full header state to the ai-chat webview (best-effort).
-fn push_header_state(ai_chat: &tauri::WebviewWindow, st: &HeaderState) {
+fn push_header_state(ai_chat: &Webview, st: &HeaderState) {
     let js = format!(
         "(function(){{var h=window.__AIChatHeader;if(!h)return;h.setBounds({mw},{mh});h.setGeometry({x},{y},{w},{h});h.setTitle({title});h.setMode({mode});}})();",
         mw = st.main_w, mh = st.main_h,
@@ -180,7 +188,7 @@ fn push_header_state(ai_chat: &tauri::WebviewWindow, st: &HeaderState) {
 }
 
 fn set_docusync_geometry(app: &tauri::AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
-    if let Some(docusync) = app.get_webview_window("docusync") {
+    if let Some(docusync) = get_child_webview(app, "docusync") {
         docusync.set_position(tauri::Position::Logical(LogicalPosition { x, y })).map_err(|e| e.to_string())?;
         docusync.set_size(tauri::Size::Logical(LogicalSize { width: w, height: h })).map_err(|e| e.to_string())?;
     }
@@ -188,7 +196,7 @@ fn set_docusync_geometry(app: &tauri::AppHandle, x: f64, y: f64, w: f64, h: f64)
 }
 
 fn set_ai_chat_geometry(app: &tauri::AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
-    if let Some(ai_chat) = app.get_webview_window("ai-chat") {
+    if let Some(ai_chat) = get_child_webview(app, "ai-chat") {
         ai_chat.set_position(tauri::Position::Logical(LogicalPosition { x, y })).map_err(|e| e.to_string())?;
         ai_chat.set_size(tauri::Size::Logical(LogicalSize { width: w, height: h })).map_err(|e| e.to_string())?;
     }
@@ -198,7 +206,7 @@ fn set_ai_chat_geometry(app: &tauri::AppHandle, x: f64, y: f64, w: f64, h: f64) 
 /// Get the existing ai-chat webview, or create a new one at the given position/size.
 /// Recovers from the "a webview with label `ai-chat` already exists" error that occurs
 /// when the webview was destroyed (e.g. by a bad navigation) but its label remains
-/// stuck in Tauri's internal registry — `get_webview_window` returns `None` yet
+/// stuck in Tauri's internal registry — `get_child_webview` returns `None` yet
 /// `add_child` rejects the duplicate label.
 fn get_or_create_ai_chat(
     app: &tauri::AppHandle,
@@ -207,9 +215,9 @@ fn get_or_create_ai_chat(
     y: f64,
     w: f64,
     h: f64,
-) -> Result<tauri::WebviewWindow, String> {
+) -> Result<Webview, String> {
     // Fast path: webview already exists
-    if let Some(existing) = app.get_webview_window("ai-chat") {
+    if let Some(existing) = get_child_webview(app, "ai-chat") {
         return Ok(existing);
     }
 
@@ -222,17 +230,15 @@ fn get_or_create_ai_chat(
         LogicalPosition::new(x, y),
         LogicalSize::new(w, h),
     ) {
-        Ok(_) => app
-            .get_webview_window("ai-chat")
-            .ok_or_else(|| "Failed to get ai-chat webview after creation".to_string()),
+        Ok(webview) => Ok(webview),
         Err(ref e) if e.to_string().contains("already exists") => {
             // Label registered but webview inaccessible. Try to close the stale
             // entry via every available lookup, then recreate.
-            if let Some(stale) = app.get_webview_window("ai-chat") {
+            if let Some(stale) = get_child_webview(app, "ai-chat") {
                 let _ = stale.close();
             }
-            for (label, wv) in app.webview_windows() {
-                if label == "ai-chat" {
+            for wv in main_window.webviews() {
+                if wv.label() == "ai-chat" {
                     let _ = wv.close();
                 }
             }
@@ -244,9 +250,7 @@ fn get_or_create_ai_chat(
                     LogicalPosition::new(x, y),
                     LogicalSize::new(w, h),
                 )
-                .map_err(|e| e.to_string())?;
-            app.get_webview_window("ai-chat")
-                .ok_or_else(|| "Failed to get ai-chat webview after recreation".to_string())
+                .map_err(|e| e.to_string())
         }
         Err(e) => Err(e.to_string()),
     }
@@ -346,14 +350,14 @@ fn open_ai_chat_popup(
 
 #[tauri::command]
 fn close_ai_chat(app: tauri::AppHandle, state: State<'_, Mutex<HeaderState>>) -> Result<(), String> {
-    if let Some(ai_chat) = app.get_webview_window("ai-chat") {
+    if let Some(ai_chat) = get_child_webview(&app, "ai-chat") {
         ai_chat.hide().map_err(|e| e.to_string())?;
     }
     let (main_w, main_h) = main_size(&app)?;
     set_docusync_geometry(&app, 0.0, 0.0, main_w, main_h)?;
 
     if let Ok(mut guard) = state.lock() { guard.mode = "closed".into(); }
-    if let Some(ai_chat) = app.get_webview_window("ai-chat") {
+    if let Some(ai_chat) = get_child_webview(&app, "ai-chat") {
         push_header_state(&ai_chat, &HeaderState { mode: "closed".into(), ..Default::default() });
     }
 
@@ -363,7 +367,7 @@ fn close_ai_chat(app: tauri::AppHandle, state: State<'_, Mutex<HeaderState>>) ->
 
 #[tauri::command]
 fn minimize_ai_chat(app: tauri::AppHandle, state: State<'_, Mutex<HeaderState>>) -> Result<(), String> {
-    if let Some(ai_chat) = app.get_webview_window("ai-chat") {
+    if let Some(ai_chat) = get_child_webview(&app, "ai-chat") {
         ai_chat.hide().map_err(|e| e.to_string())?;
     }
     let (main_w, main_h) = main_size(&app)?;
@@ -390,7 +394,7 @@ fn get_ai_chat_header_state(state: State<'_, Mutex<HeaderState>>) -> HeaderState
 
 #[tauri::command]
 fn resize_webview(app: tauri::AppHandle, label: String, width: f64, height: f64) -> Result<(), String> {
-    if let Some(webview) = app.get_webview_window(&label) {
+    if let Some(webview) = get_child_webview(&app, &label) {
         webview.set_size(tauri::Size::Logical(LogicalSize { width, height }))
             .map_err(|e| e.to_string())?;
     }
@@ -399,7 +403,7 @@ fn resize_webview(app: tauri::AppHandle, label: String, width: f64, height: f64)
 
 #[tauri::command]
 fn move_webview(app: tauri::AppHandle, label: String, x: f64, y: f64) -> Result<(), String> {
-    if let Some(webview) = app.get_webview_window(&label) {
+    if let Some(webview) = get_child_webview(&app, &label) {
         webview.set_position(tauri::Position::Logical(LogicalPosition { x, y }))
             .map_err(|e| e.to_string())?;
     }
