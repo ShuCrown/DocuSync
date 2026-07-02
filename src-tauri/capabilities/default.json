@@ -1,0 +1,40 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window and AI chat webview",
+  "remote": {
+    "urls": [
+      "https://chat.deepseek.com/*",
+      "https://*.deepseek.com/*",
+      "https://www.doubao.com/*",
+      "https://*.doubao.com/*",
+      "https://kimi.moonshot.cn/*",
+      "https://*.moonshot.cn/*",
+      "https://tongyi.aliyun.com/*",
+      "https://*.aliyun.com/*"
+    ]
+  },
+  "windows": ["main", "ai-chat"],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-create",
+    "core:window:allow-close",
+    "core:window:allow-set-size",
+    "core:window:allow-set-position",
+    "core:window:allow-set-title",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-minimize",
+    "core:window:allow-unminimize",
+    "core:window:allow-start-dragging",
+    "core:webview:default",
+    "core:webview:allow-create-webview-window",
+    "core:webview:allow-set-webview-size",
+    "core:webview:allow-set-webview-position",
+    "core:webview:allow-set-webview-focus",
+    "shell:allow-open"
+  ]
+}

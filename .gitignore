@@ -39,3 +39,7 @@ Thumbs.db
 .history
 docs/
 .qoder
+
+# Tauri build outputs
+src-tauri/target/
+src-tauri/gen/schemas/

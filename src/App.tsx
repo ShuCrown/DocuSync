@@ -11,6 +11,7 @@ import { PaneHeader } from './components/PaneHeader'
 import { SimplePaneHeader } from './components/SimplePaneHeader'
 import { DuplicateConfirm } from './components/DuplicateConfirm'
 import { ShareDialog } from './components/ShareDialog'
+import { ChatPanelContainer } from './components/ChatPanelContainer'
 import { useFileUpload } from './hooks/useFileUpload'
 import { useFileHistory } from './hooks/useFileHistory'
 import { useAccount } from './hooks/useAccount'
@@ -302,119 +303,123 @@ export default function App() {
   ), [handlePickerFile, history, handlePickerHistorySelect, removeHistory, clearHistory, handlePaneBClose])
 
   return (
-    <Layout
-      currentFileName={paneA?.file.name ?? uploadedFile?.file.name ?? null}
-      onBack={handleClear}
-      history={history}
-      onHistorySelect={handleHistorySelect}
-      onHistoryRemove={removeHistory}
-      onHistoryClear={clearHistory}
-      email={account.email}
-      onAccountOpen={handleAccountOpen}
-      splitMode={splitMode}
-      onSplitToggle={handleSplitToggle}
-      splitButtonRef={splitButtonRef}
-    >
-      {!paneA && !uploadedFile ? (
-        <div className="flex-1 flex items-start justify-center px-4 sm:px-6 py-12">
-          <div className="w-full max-w-2xl">
-            <FileUpload
-              onFile={handleFileWithHistory}
-              currentFile={null}
-              uploading={uploading}
-              error={uploadError}
-            />
-            <FileHistory
-              history={history}
-              onSelect={handleHistorySelect}
-              onRemove={removeHistory}
-              onClear={clearHistory}
-            />
-          </div>
-        </div>
-      ) : isSplit ? (
-        <SplitPane
-          direction={splitDirection}
-          splitRatio={splitRatio}
-          onSplitRatioChange={setSplitRatio}
-          onSwap={swapPanes}
-          onDirectionChange={toggleDirection}
-          paneA={paneAElement}
-          paneB={paneB ? paneBElement : paneBPickerElement}
-        />
-      ) : (
-        <div className="flex-1 flex flex-col min-h-0">
-          <SimplePaneHeader
-            fileName={singleFile!.file.name}
-            docId={singleFile?.docId}
-            onClose={handleClear}
-            onShare={singleFile?.docId ? () => handleShareOpen(singleFile.docId!, singleFile.file.name) : undefined}
-          />
-          <div ref={handleSingleScrollRef} className="flex-1 overflow-auto">
-            <DocumentViewer
-              uploaded={singleFile!}
-              onTextExtracted={() => {}}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Download loading overlay */}
-      {downloading && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-          <div className="bg-surface-card rounded-xl p-6 shadow-xl flex flex-col items-center gap-3 min-w-[240px]">
-            <Loader2 className="w-8 h-8 text-primary animate-spin" />
-            <div className="text-sm text-text font-medium">加载中</div>
-            {downloadProgress !== null && (
-              <div className="w-full">
-                <div className="h-1.5 bg-surface-alt rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-primary rounded-full"
-                    style={{ width: `${downloadProgress}%` }}
-                  />
-                </div>
-                <div className="text-xs text-text-secondary text-center mt-1">
-                  {downloadProgress}%
-                </div>
+    <ChatPanelContainer>
+      {(openChat) => (
+        <Layout
+          currentFileName={paneA?.file.name ?? uploadedFile?.file.name ?? null}
+          onBack={handleClear}
+          history={history}
+          onHistorySelect={handleHistorySelect}
+          onHistoryRemove={removeHistory}
+          onHistoryClear={clearHistory}
+          email={account.email}
+          onAccountOpen={handleAccountOpen}
+          splitMode={splitMode}
+          onSplitToggle={handleSplitToggle}
+          splitButtonRef={splitButtonRef}
+        >
+          {!paneA && !uploadedFile ? (
+            <div className="flex-1 flex items-start justify-center px-4 sm:px-6 py-12">
+              <div className="w-full max-w-2xl">
+                <FileUpload
+                  onFile={handleFileWithHistory}
+                  currentFile={null}
+                  uploading={uploading}
+                  error={uploadError}
+                />
+                <FileHistory
+                  history={history}
+                  onSelect={handleHistorySelect}
+                  onRemove={removeHistory}
+                  onClear={clearHistory}
+                />
               </div>
-            )}
-          </div>
-        </div>
+            </div>
+          ) : isSplit ? (
+            <SplitPane
+              direction={splitDirection}
+              splitRatio={splitRatio}
+              onSplitRatioChange={setSplitRatio}
+              onSwap={swapPanes}
+              onDirectionChange={toggleDirection}
+              paneA={paneAElement}
+              paneB={paneB ? paneBElement : paneBPickerElement}
+            />
+          ) : (
+            <div className="flex-1 flex flex-col min-h-0">
+              <SimplePaneHeader
+                fileName={singleFile!.file.name}
+                docId={singleFile?.docId}
+                onClose={handleClear}
+                onShare={singleFile?.docId ? () => handleShareOpen(singleFile.docId!, singleFile.file.name) : undefined}
+              />
+              <div ref={handleSingleScrollRef} className="flex-1 overflow-auto">
+                <DocumentViewer
+                  uploaded={singleFile!}
+                  onTextExtracted={() => {}}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Download loading overlay */}
+          {downloading && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+              <div className="bg-surface-card rounded-xl p-6 shadow-xl flex flex-col items-center gap-3 min-w-[240px]">
+                <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                <div className="text-sm text-text font-medium">加载中</div>
+                {downloadProgress !== null && (
+                  <div className="w-full">
+                    <div className="h-1.5 bg-surface-alt rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary rounded-full"
+                        style={{ width: `${downloadProgress}%` }}
+                      />
+                    </div>
+                    <div className="text-xs text-text-secondary text-center mt-1">
+                      {downloadProgress}%
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <AccountPanel
+            open={accountOpen}
+            onClose={handleAccountClose}
+            email={account.email}
+            loading={account.loading}
+            error={account.error}
+            onBind={account.bindEmail}
+            onVerify={account.verifyBind}
+            onSendRecoverCode={account.sendRecoverCode}
+            onRecover={account.recoverAccount}
+            onUnbind={account.unbindEmail}
+          />
+
+          {shareDoc && (
+            <ShareDialog
+              open={!!shareDoc}
+              onClose={handleShareClose}
+              docId={shareDoc.id}
+              fileName={shareDoc.name}
+            />
+          )}
+
+          {/* Selection toolbar for AI Q&A */}
+          {activeFile && <SelectionToolbar onOpenChat={openChat} />}
+
+          {/* Duplicate file confirmation */}
+          {pendingDuplicate && (
+            <DuplicateConfirm
+              fileName={pendingDuplicate.name}
+              onConfirm={handleDuplicateConfirm}
+              onCancel={handleDuplicateCancel}
+            />
+          )}
+        </Layout>
       )}
-
-      <AccountPanel
-        open={accountOpen}
-        onClose={handleAccountClose}
-        email={account.email}
-        loading={account.loading}
-        error={account.error}
-        onBind={account.bindEmail}
-        onVerify={account.verifyBind}
-        onSendRecoverCode={account.sendRecoverCode}
-        onRecover={account.recoverAccount}
-        onUnbind={account.unbindEmail}
-      />
-
-      {shareDoc && (
-        <ShareDialog
-          open={!!shareDoc}
-          onClose={handleShareClose}
-          docId={shareDoc.id}
-          fileName={shareDoc.name}
-        />
-      )}
-
-      {/* Selection toolbar for AI Q&A */}
-      {activeFile && <SelectionToolbar />}
-
-      {/* Duplicate file confirmation */}
-      {pendingDuplicate && (
-        <DuplicateConfirm
-          fileName={pendingDuplicate.name}
-          onConfirm={handleDuplicateConfirm}
-          onCancel={handleDuplicateCancel}
-        />
-      )}
-    </Layout>
+    </ChatPanelContainer>
   )
 }

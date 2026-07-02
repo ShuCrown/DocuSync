@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Check, Settings } from 'lucide-react'
 import { useAIServices } from '../hooks/useAIServices'
 import { AISettingsPanel } from './AISettingsPanel'
+import { isTauri } from '../utils/tauri'
 import type { AIService } from '../hooks/useAIServices'
 
 // --- Icon component with fallback (exported for AISettingsPanel) ---
@@ -41,7 +42,7 @@ interface Pos {
 
 // --- Component ---
 
-export function SelectionToolbar() {
+export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, title: string) => void }) {
   const { services, enabledServices, addService, removeService, moveService, toggleService, updateService, resetToDefaults } = useAIServices()
   const [text, setText] = useState('')
   const [pos, setPos] = useState<Pos | null>(null)
@@ -111,13 +112,17 @@ export function SelectionToolbar() {
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
 
-    // Open popup for AI Q&A
-    const w = 900, h = 700
-    window.open(
-      service.url,
-      `ai-${service.id}`,
-      `width=${w},height=${h},left=${Math.round((screen.width - w) / 2)},top=${Math.round((screen.height - h) / 2)},scrollbars=yes,resizable=yes`,
-    )
+    // Tauri: open in sidebar; Browser: open popup window
+    if (isTauri() && onOpenChat) {
+      onOpenChat(service.url, service.name)
+    } else {
+      const w = 900, h = 700
+      window.open(
+        service.url,
+        `ai-${service.id}`,
+        `width=${w},height=${h},left=${Math.round((screen.width - w) / 2)},top=${Math.round((screen.height - h) / 2)},scrollbars=yes,resizable=yes`,
+      )
+    }
 
     window.getSelection()?.removeAllRanges()
     setPos(null)
