@@ -35,13 +35,19 @@ export function ChatPanel({ panel }: { panel: ChatPanelState }) {
     document.body.style.cursor = 'col-resize'
     document.body.style.userSelect = 'none'
     let raf = 0
+    // Track the latest desired chat width; persisted to React state on mouseup so the
+    // drag doesn't queue overlapping resize invokes (geometry is applied via the single
+    // `relayout_main` invoke per RAF below).
+    let lastWidth = panel.sidebarWidth
     const onMove = (ev: MouseEvent) => {
       if (raf) return
       raf = requestAnimationFrame(() => {
         raf = 0
         const mainW = mainWidthRef.current || window.innerWidth + panel.sidebarWidth
-        const newWidth = mainW - ev.clientX
-        panel.resizeSidebar(newWidth)
+        const newWidth = Math.max(300, Math.min(600, mainW - ev.clientX))
+        lastWidth = newWidth
+        // Single atomic invoke — Rust resizes docusync + ai-chat together.
+        invoke('relayout_main', { chatWidth: newWidth }).catch(() => {})
       })
     }
     const stop = () => {
@@ -50,6 +56,9 @@ export function ChatPanel({ panel }: { panel: ChatPanelState }) {
       document.removeEventListener('mouseleave', stop)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
+      // Persist final width to React state + localStorage (no geometry invoke —
+      // relayout_main already applied it during the drag).
+      panel.commitSidebarWidth(lastWidth)
     }
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', stop)
@@ -61,7 +70,7 @@ export function ChatPanel({ panel }: { panel: ChatPanelState }) {
     return (
       <div
         onMouseDown={startDrag}
-        className="fixed top-0 right-0 bottom-0 w-1.5 cursor-col-resize z-[9998] bg-border/60 hover:bg-primary/40 transition-colors group"
+        className="fixed top-0 right-0 bottom-0 w-2 cursor-col-resize z-[9998] bg-border hover:bg-primary/50 transition-colors group"
         title="拖拽调整聊天宽度"
       >
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-0.5 bg-surface-card border border-border rounded-full shadow-[0_2px_8px_rgba(0,0,0,0.12)] px-1 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity">

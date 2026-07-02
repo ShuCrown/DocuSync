@@ -18,6 +18,10 @@ export interface ChatPanelState {
   restore: () => void
   close: () => void
   resizeSidebar: (width: number) => void
+  /** Update React state + localStorage only (no geometry invokes). Used by the
+   *  divider drag on mouseup to persist the final width after `relayout_main`
+   *  has already applied the geometry during the drag. */
+  commitSidebarWidth: (width: number) => void
   /** Alias used by the container contract (text-selection → open chat). */
   openChat: (url: string, title: string) => void
 }
@@ -30,6 +34,19 @@ const POPUP_DEFAULT_HEIGHT = 560
 
 const LS_WIDTH = 'docusync.chatpanel.width'
 const LS_LAST_MODE = 'docusync.chatpanel.lastMode'
+
+// Mirror of `HeaderState` in src-tauri/src/lib.rs (camelCase via #[serde(rename_all)]).
+interface RustHeaderState {
+  mode: string
+  title: string
+  url: string
+  x: number
+  y: number
+  w: number
+  h: number
+  mainW: number
+  mainH: number
+}
 
 function readWidth(): number {
   const v = Number(localStorage.getItem(LS_WIDTH))
@@ -149,20 +166,20 @@ export function useChatPanel(): ChatPanelState {
     const clamped = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, newWidth))
     setSidebarWidth(clamped)
     persistWidth(clamped)
+    // Single atomic invoke — Rust resizes docusync + ai-chat together.
     try {
-      let mainW = window.innerWidth
-      let mainH = window.innerHeight
-      try {
-        const size = await invoke<[number, number]>('get_main_size')
-        if (Array.isArray(size) && size.length === 2) { mainW = size[0]; mainH = size[1] }
-      } catch { /* fall back */ }
-      const docW = Math.max(200, mainW - clamped)
-      await invoke('resize_webview', { label: 'docusync', width: docW, height: mainH })
-      await invoke('move_webview', { label: 'ai-chat', x: docW, y: 0 })
-      await invoke('resize_webview', { label: 'ai-chat', width: clamped, height: mainH })
+      await invoke('relayout_main', { chatWidth: clamped })
     } catch (err) {
       console.error('Failed to resize sidebar:', err)
     }
+  }, [persistWidth])
+
+  // State-only commit used at drag end (geometry already applied via relayout_main
+  // during the drag). Avoids redundant invokes and the race they create.
+  const commitSidebarWidth = useCallback((newWidth: number) => {
+    const clamped = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, newWidth))
+    setSidebarWidth(clamped)
+    persistWidth(clamped)
   }, [persistWidth])
 
   // React to header-action events emitted by the injected AI-side header (relayed via Rust).
@@ -178,8 +195,18 @@ export function useChatPanel(): ChatPanelState {
   }, [switchToSidebar, switchToPopup, minimize, close])
 
   // Sync mode when Rust reports close/open externally (e.g. window.open interceptor path).
+  // The window.open interceptor calls Rust's open_ai_chat directly, bypassing the hook, so
+  // currentUrl/currentTitle would otherwise stay null — and any header action that re-opens
+  // (popup/sidebar) would fall back to the wrong default URL. Pull state from Rust here.
   useEffect(() => {
-    const unlistenOpened = listen('ai-chat-opened', () => { setMode('sidebar') })
+    const unlistenOpened = listen('ai-chat-opened', async () => {
+      setMode('sidebar')
+      try {
+        const st = await invoke<RustHeaderState>('get_ai_chat_header_state')
+        if (st.url) setCurrentUrl(st.url)
+        if (st.title) setCurrentTitle(st.title)
+      } catch { /* state unavailable — keep existing */ }
+    })
     const unlistenClosed = listen('ai-chat-closed', () => {
       setMode('closed')
       setCurrentUrl(null)
@@ -204,6 +231,7 @@ export function useChatPanel(): ChatPanelState {
     restore,
     close,
     resizeSidebar,
+    commitSidebarWidth,
     openChat: openSidebar,
   }
 }

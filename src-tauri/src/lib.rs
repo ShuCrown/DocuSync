@@ -148,16 +148,19 @@ struct HeaderState {
     #[serde(default)]
     main_h: f64,
     // Last loaded URL — used to decide whether to navigate (skip when reopening the same service
-    // so in-chat state is preserved). Not serialized to the JS header.
-    #[serde(skip)]
+    // so in-chat state is preserved). Serialized so the React hook can sync url/title when chat
+    // was opened via the window.open interceptor (which bypasses the hook).
     url: String,
 }
 
-// --- Geometry helper: returns (width, height) of the main window ---
+// --- Geometry helper: returns (width, height) of the main window in LOGICAL pixels.
+//     `inner_size()` reports physical pixels; we divide by the scale factor so the result
+//     matches the LogicalSize / LogicalPosition units used by set_size / set_position.
 fn main_size(app: &tauri::AppHandle) -> Result<(f64, f64), String> {
     let main_window = app.get_window("main").ok_or("Main window not found")?;
     let size = main_window.inner_size().map_err(|e| e.to_string())?;
-    Ok((size.width as f64, size.height as f64))
+    let scale = main_window.scale_factor().unwrap_or(1.0);
+    Ok((size.width as f64 / scale, size.height as f64 / scale))
 }
 
 // Exposed to the frontend so the divider drag can compute full main width
@@ -406,6 +409,90 @@ fn move_webview(app: tauri::AppHandle, label: String, x: f64, y: f64) -> Result<
     Ok(())
 }
 
+// --- Atomic relayout of both child webviews based on the current HeaderState.mode.
+//     Used by:
+//       - the React divider drag (single invoke per frame, no round-trips per webview)
+//       - the main-window Resized event handler (keeps children in sync when the user
+//         resizes the OS window — previously the docusync webview stayed at 1600x900).
+//     `chat_width` overrides the persisted sidebar width when supplied (drag live updates).
+fn do_relayout(
+    app: &tauri::AppHandle,
+    state: &Mutex<HeaderState>,
+    chat_width: Option<f64>,
+) -> Result<(), String> {
+    let (main_w, main_h) = main_size(app)?;
+    let (mode, st_w, st_h, st_x, st_y, st_title, st_url) = {
+        let g = state.lock().map_err(|e| e.to_string())?;
+        (g.mode.clone(), g.w, g.h, g.x, g.y, g.title.clone(), g.url.clone())
+    };
+
+    match mode.as_str() {
+        "sidebar" => {
+            let chat_w = chat_width.unwrap_or(st_w).max(300.0).min(600.0);
+            let doc_w = (main_w - chat_w).max(200.0);
+            set_docusync_geometry(app, 0.0, 0.0, doc_w, main_h)?;
+            set_ai_chat_geometry(app, doc_w, 0.0, chat_w, main_h)?;
+            let st = HeaderState {
+                mode: mode.clone(),
+                title: st_title,
+                x: doc_w, y: 0.0, w: chat_w, h: main_h,
+                main_w, main_h,
+                url: st_url,
+            };
+            if let Ok(mut guard) = state.lock() {
+                guard.x = doc_w;
+                guard.y = 0.0;
+                guard.w = chat_w;
+                guard.h = main_h;
+                guard.main_w = main_w;
+                guard.main_h = main_h;
+            }
+            if let Some(ai_chat) = app.get_webview_window("ai-chat") {
+                push_header_state(&ai_chat, &st);
+            }
+        }
+        "popup" => {
+            // Keep popup position/size but clamp within the new main bounds.
+            let w = st_w.min(main_w).max(280.0);
+            let h = st_h.min(main_h).max(360.0);
+            let x = st_x.max(0.0).min((main_w - w).max(0.0));
+            let y = st_y.max(0.0).min((main_h - h).max(0.0));
+            set_docusync_geometry(app, 0.0, 0.0, main_w, main_h)?;
+            set_ai_chat_geometry(app, x, y, w, h)?;
+            if let Ok(mut guard) = state.lock() {
+                guard.x = x;
+                guard.y = y;
+                guard.w = w;
+                guard.h = h;
+                guard.main_w = main_w;
+                guard.main_h = main_h;
+            }
+            if let Some(ai_chat) = app.get_webview_window("ai-chat") {
+                let st = state.lock().map(|g| g.clone()).unwrap_or_default();
+                push_header_state(&ai_chat, &st);
+            }
+        }
+        _ => {
+            // closed / minimized: docusync full-width; ai-chat stays hidden.
+            set_docusync_geometry(app, 0.0, 0.0, main_w, main_h)?;
+            if let Ok(mut guard) = state.lock() {
+                guard.main_w = main_w;
+                guard.main_h = main_h;
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn relayout_main(
+    app: tauri::AppHandle,
+    state: State<'_, Mutex<HeaderState>>,
+    chat_width: Option<f64>,
+) -> Result<(), String> {
+    do_relayout(&app, state.inner(), chat_width)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -421,6 +508,7 @@ pub fn run() {
             minimize_ai_chat,
             ai_chat_header_action,
             get_ai_chat_header_state,
+            relayout_main,
         ])
         .setup(|app| {
             let main_window = app.get_window("main").unwrap();
@@ -445,6 +533,17 @@ pub fn run() {
                 LogicalPosition::new(0.0, 0.0),
                 LogicalSize::new(1600.0, 900.0),
             )?;
+
+            // Keep docusync (and ai-chat, when in sidebar/popup mode) sized to the main
+            // window whenever the user resizes it. Without this, the docusync webview stays
+            // pinned at 1600x900 and the web page never reflows to the new viewport.
+            let app_handle_for_resize = app.handle().clone();
+            main_window.on_window_event(move |event| {
+                if let tauri::WindowEvent::Resized(_) = event {
+                    let state = app_handle_for_resize.state::<Mutex<HeaderState>>();
+                    let _ = do_relayout(&app_handle_for_resize, state.inner(), None);
+                }
+            });
 
             Ok(())
         })
