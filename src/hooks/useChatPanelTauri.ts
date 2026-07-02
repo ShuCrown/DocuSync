@@ -63,33 +63,62 @@ export function useChatPanel(): ChatPanelState {
     try { localStorage.setItem(LS_LAST_MODE, m) } catch { /* ignore */ }
   }, [])
 
+  const resizeSidebar = useCallback(async (newWidth: number) => {
+    const clamped = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, newWidth))
+    setSidebarWidth(clamped)
+    persistWidth(clamped)
+    try {
+      // Use the sum of current docusync width + chat width as a robust fallback
+      // when the Tauri main-size command is unavailable.
+      let mainW = window.innerWidth + sidebarWidth
+      let mainH = window.innerHeight
+      try {
+        const size = await invoke<[number, number]>('get_main_size')
+        if (Array.isArray(size) && size.length === 2) { mainW = size[0]; mainH = size[1] }
+      } catch { /* fall back to window.innerWidth + sidebarWidth */ }
+      const docW = Math.max(200, mainW - clamped)
+      await invoke('resize_webview', { label: 'docusync', width: docW, height: mainH })
+      await invoke('move_webview', { label: 'ai-chat', x: docW, y: 0 })
+      await invoke('resize_webview', { label: 'ai-chat', width: clamped, height: mainH })
+    } catch (err) {
+      console.error('Failed to resize sidebar:', err)
+    }
+  }, [persistWidth, sidebarWidth])
+
   const openSidebar = useCallback(async (url?: string, title?: string) => {
     const targetUrl = url || urlRef.current || 'https://chat.deepseek.com/'
     const targetTitle = title || titleRef.current || 'AI Chat'
+    const width = sidebarWidth
     setCurrentUrl(targetUrl)
     setCurrentTitle(targetTitle)
+    urlRef.current = targetUrl
+    titleRef.current = targetTitle
     lastModeRef.current = 'sidebar'
     persistLastMode('sidebar')
     try {
-      await invoke('open_ai_chat', { url: targetUrl, title: targetTitle, width: readWidth() })
+      await invoke('open_ai_chat', { url: targetUrl, title: targetTitle, width })
       setMode('sidebar')
+      // Sync geometry with the current persisted width in case Rust fell back to a default.
+      await resizeSidebar(width)
     } catch (err) {
       console.error('Failed to open sidebar:', err)
     }
-  }, [persistLastMode])
+  }, [persistLastMode, sidebarWidth, resizeSidebar])
 
   const switchToSidebar = useCallback(async () => {
     const url = urlRef.current || 'https://chat.deepseek.com/'
     const title = titleRef.current || 'AI Chat'
+    const width = sidebarWidth
     lastModeRef.current = 'sidebar'
     persistLastMode('sidebar')
     try {
-      await invoke('open_ai_chat', { url, title, width: readWidth() })
+      await invoke('open_ai_chat', { url, title, width })
       setMode('sidebar')
+      await resizeSidebar(width)
     } catch (err) {
       console.error('Failed to switch to sidebar:', err)
     }
-  }, [persistLastMode])
+  }, [persistLastMode, sidebarWidth, resizeSidebar])
 
   const switchToPopup = useCallback(async () => {
     const url = urlRef.current || 'https://chat.deepseek.com/'
@@ -144,26 +173,6 @@ export function useChatPanel(): ChatPanelState {
 
   // Backwards-compatible alias kept in the public API.
   const closeSidebar = close
-
-  const resizeSidebar = useCallback(async (newWidth: number) => {
-    const clamped = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, newWidth))
-    setSidebarWidth(clamped)
-    persistWidth(clamped)
-    try {
-      let mainW = window.innerWidth
-      let mainH = window.innerHeight
-      try {
-        const size = await invoke<[number, number]>('get_main_size')
-        if (Array.isArray(size) && size.length === 2) { mainW = size[0]; mainH = size[1] }
-      } catch { /* fall back */ }
-      const docW = Math.max(200, mainW - clamped)
-      await invoke('resize_webview', { label: 'docusync', width: docW, height: mainH })
-      await invoke('move_webview', { label: 'ai-chat', x: docW, y: 0 })
-      await invoke('resize_webview', { label: 'ai-chat', width: clamped, height: mainH })
-    } catch (err) {
-      console.error('Failed to resize sidebar:', err)
-    }
-  }, [persistWidth])
 
   // React to header-action events emitted by the injected AI-side header (relayed via Rust).
   useEffect(() => {

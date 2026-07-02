@@ -32,6 +32,8 @@ export function ChatPanel({ panel }: { panel: ChatPanelState }) {
 
   const startDrag = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
+    // Refresh the cached main width before starting the drag so the math stays accurate.
+    void refreshMainWidth()
     document.body.style.cursor = 'col-resize'
     document.body.style.userSelect = 'none'
     let raf = 0
@@ -54,7 +56,7 @@ export function ChatPanel({ panel }: { panel: ChatPanelState }) {
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', stop)
     document.addEventListener('mouseleave', stop)
-  }, [panel])
+  }, [panel, refreshMainWidth])
 
   // --- sidebar mode: draggable divider + nudge buttons ---
   if (panel.mode === 'sidebar') {
