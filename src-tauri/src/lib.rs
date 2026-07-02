@@ -153,11 +153,17 @@ struct HeaderState {
     url: String,
 }
 
-// --- Geometry helper: returns (width, height) of the main window ---
+// --- Geometry helper: returns (width, height) of the main window in LOGICAL pixels.
+//     `inner_size()` reports physical pixels, but every set_position/set_size call below
+//     uses LogicalSize/LogicalPosition. On HiDPI/scaled displays physical == 2× logical,
+//     so without this conversion the docusync webview is sized way too large and the
+//     ai-chat webview lands off-screen (chat appears "not visible"). Divide by the
+//     scale factor to keep the units consistent. ---
 fn main_size(app: &tauri::AppHandle) -> Result<(f64, f64), String> {
     let main_window = app.get_window("main").ok_or("Main window not found")?;
     let size = main_window.inner_size().map_err(|e| e.to_string())?;
-    Ok((size.width as f64, size.height as f64))
+    let scale = main_window.scale_factor().unwrap_or(1.0);
+    Ok((size.width as f64 / scale, size.height as f64 / scale))
 }
 
 // Exposed to the frontend so the divider drag can compute full main width
@@ -191,6 +197,29 @@ fn set_ai_chat_geometry(app: &tauri::AppHandle, x: f64, y: f64, w: f64, h: f64) 
     if let Some(ai_chat) = app.get_webview_window("ai-chat") {
         ai_chat.set_position(tauri::Position::Logical(LogicalPosition { x, y })).map_err(|e| e.to_string())?;
         ai_chat.set_size(tauri::Size::Logical(LogicalSize { width: w, height: h })).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Re-apply the split layout based on the current shared header state.
+/// - sidebar: shrink docusync to (main_w - chat_w) and place ai-chat on the right.
+/// - any other mode (closed / minimized / popup): give docusync the full main window.
+///
+/// Called on `set_sidebar_width` (divider drag) and on main-window resize so both panes
+/// stay correctly proportioned and the document pane reclaims full width when chat closes.
+fn relayout(app: &tauri::AppHandle, state: &Mutex<HeaderState>) -> Result<(), String> {
+    let (main_w, main_h) = main_size(app)?;
+    let st = state.lock().map_err(|e| e.to_string())?.clone();
+    match st.mode.as_str() {
+        "sidebar" => {
+            let chat_w = st.w.max(300.0).min(600.0);
+            let doc_w = (main_w - chat_w).max(200.0);
+            set_docusync_geometry(app, 0.0, 0.0, doc_w, main_h)?;
+            set_ai_chat_geometry(app, doc_w, 0.0, chat_w, main_h)?;
+        }
+        _ => {
+            set_docusync_geometry(app, 0.0, 0.0, main_w, main_h)?;
+        }
     }
     Ok(())
 }
@@ -375,6 +404,36 @@ fn minimize_ai_chat(app: tauri::AppHandle, state: State<'_, Mutex<HeaderState>>)
     Ok(())
 }
 
+// Divider drag (sidebar mode): update the cached chat width and re-apply the split layout
+// in one shot. Centralizing the geometry here keeps the shared HeaderState in sync so a
+// subsequent main-window resize (relayout) uses the user's chosen width instead of a stale value.
+#[tauri::command]
+fn set_sidebar_width(
+    app: tauri::AppHandle,
+    state: State<'_, Mutex<HeaderState>>,
+    width: f64,
+) -> Result<(), String> {
+    let chat_w = width.max(300.0).min(600.0);
+    {
+        let mut guard = state.lock().map_err(|e| e.to_string())?;
+        guard.w = chat_w;
+        guard.mode = "sidebar".into();
+    }
+    relayout(&app, state.inner())?;
+    // Keep the injected ai-chat header's geometry/mode in sync.
+    if let Some(ai_chat) = app.get_webview_window("ai-chat") {
+        let (main_w, main_h) = main_size(&app)?;
+        let mut st = state.lock().map_err(|e| e.to_string())?.clone();
+        st.main_w = main_w;
+        st.main_h = main_h;
+        st.x = (main_w - chat_w).max(200.0);
+        st.y = 0.0;
+        st.h = main_h;
+        push_header_state(&ai_chat, &st);
+    }
+    Ok(())
+}
+
 // Header button click relay: the injected header invokes this; we emit an event the React hook listens to.
 #[tauri::command]
 fn ai_chat_header_action(app: tauri::AppHandle, action: String) -> Result<(), String> {
@@ -419,6 +478,7 @@ pub fn run() {
             open_ai_chat_popup,
             close_ai_chat,
             minimize_ai_chat,
+            set_sidebar_width,
             ai_chat_header_action,
             get_ai_chat_header_state,
         ])
@@ -445,6 +505,18 @@ pub fn run() {
                 LogicalPosition::new(0.0, 0.0),
                 LogicalSize::new(1600.0, 900.0),
             )?;
+
+            // Adaptive layout: when the main window is resized, re-apply the split so the
+            // document pane and chat pane stay correctly proportioned (sidebar mode) or the
+            // document pane reclaims the full window (closed/minimized/popup). Resizing a
+            // child webview does not re-trigger the main window's Resized event, so no loop.
+            let app_handle = app.handle().clone();
+            main_window.on_window_event(move |event| {
+                if let tauri::WindowEvent::Resized(_) = event {
+                    let state = app_handle.state::<Mutex<HeaderState>>();
+                    let _ = relayout(&app_handle, state.inner());
+                }
+            });
 
             Ok(())
         })

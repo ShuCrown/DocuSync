@@ -150,16 +150,10 @@ export function useChatPanel(): ChatPanelState {
     setSidebarWidth(clamped)
     persistWidth(clamped)
     try {
-      let mainW = window.innerWidth
-      let mainH = window.innerHeight
-      try {
-        const size = await invoke<[number, number]>('get_main_size')
-        if (Array.isArray(size) && size.length === 2) { mainW = size[0]; mainH = size[1] }
-      } catch { /* fall back */ }
-      const docW = Math.max(200, mainW - clamped)
-      await invoke('resize_webview', { label: 'docusync', width: docW, height: mainH })
-      await invoke('move_webview', { label: 'ai-chat', x: docW, y: 0 })
-      await invoke('resize_webview', { label: 'ai-chat', width: clamped, height: mainH })
+      // Single Rust call: updates shared HeaderState.w + mode, then re-applies the split
+      // geometry (docusync shrinks, ai-chat moves/resizes) via relayout(). Keeping the
+      // width in Rust state means a later main-window resize re-uses the user's chosen width.
+      await invoke('set_sidebar_width', { width: clamped })
     } catch (err) {
       console.error('Failed to resize sidebar:', err)
     }
