@@ -3,11 +3,13 @@ use serde::Serialize;
 use tauri::{Emitter, Manager, State, WebviewUrl, LogicalPosition, LogicalSize, WebviewBuilder};
 
 // --- Initialization script for the DocuSync webview: route window.open() to the AI chat sidebar ---
+//     Only intercepts http/https URLs so that blob:, data:, file:, and other non-web URLs
+//     (e.g. from document preview components) pass through to the original window.open.
 const DOCUSYNC_INIT_SCRIPT: &str = r#"
 (function() {
   const originalOpen = window.open;
   window.open = function(url, target, features) {
-    if (url && typeof url === 'string') {
+    if (url && typeof url === 'string' && /^https?:\/\//i.test(url)) {
       window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke('open_ai_chat', {
         url: url,
         title: target || 'AI Chat',
@@ -193,6 +195,63 @@ fn set_ai_chat_geometry(app: &tauri::AppHandle, x: f64, y: f64, w: f64, h: f64) 
     Ok(())
 }
 
+/// Get the existing ai-chat webview, or create a new one at the given position/size.
+/// Recovers from the "a webview with label `ai-chat` already exists" error that occurs
+/// when the webview was destroyed (e.g. by a bad navigation) but its label remains
+/// stuck in Tauri's internal registry — `get_webview_window` returns `None` yet
+/// `add_child` rejects the duplicate label.
+fn get_or_create_ai_chat(
+    app: &tauri::AppHandle,
+    url: &url::Url,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+) -> Result<tauri::WebviewWindow, String> {
+    // Fast path: webview already exists
+    if let Some(existing) = app.get_webview_window("ai-chat") {
+        return Ok(existing);
+    }
+
+    // Create new webview
+    let main_window = app.get_window("main").ok_or("Main window not found")?;
+
+    match main_window.add_child(
+        WebviewBuilder::new("ai-chat", WebviewUrl::External(url.clone()))
+            .initialization_script(AI_CHAT_INIT_SCRIPT),
+        LogicalPosition::new(x, y),
+        LogicalSize::new(w, h),
+    ) {
+        Ok(_) => app
+            .get_webview_window("ai-chat")
+            .ok_or_else(|| "Failed to get ai-chat webview after creation".to_string()),
+        Err(ref e) if e.to_string().contains("already exists") => {
+            // Label registered but webview inaccessible. Try to close the stale
+            // entry via every available lookup, then recreate.
+            if let Some(stale) = app.get_webview_window("ai-chat") {
+                let _ = stale.close();
+            }
+            for (label, wv) in app.webview_windows() {
+                if label == "ai-chat" {
+                    let _ = wv.close();
+                }
+            }
+            // Retry creation
+            main_window
+                .add_child(
+                    WebviewBuilder::new("ai-chat", WebviewUrl::External(url.clone()))
+                        .initialization_script(AI_CHAT_INIT_SCRIPT),
+                    LogicalPosition::new(x, y),
+                    LogicalSize::new(w, h),
+                )
+                .map_err(|e| e.to_string())?;
+            app.get_webview_window("ai-chat")
+                .ok_or_else(|| "Failed to get ai-chat webview after recreation".to_string())
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 // --- Sidebar mode: shrink docusync, place ai-chat on the right ---
 #[tauri::command]
 fn open_ai_chat(
@@ -214,25 +273,12 @@ fn open_ai_chat(
     let prev_url = state.lock().map(|g| g.url.clone()).unwrap_or_default();
     let need_nav = prev_url != url;
 
-    if let Some(ai_chat) = app.get_webview_window("ai-chat") {
-        if need_nav {
-            ai_chat.navigate(url_parsed.clone()).map_err(|e| e.to_string())?;
-        }
-        set_ai_chat_geometry(&app, doc_w, 0.0, chat_w, main_h)?;
-        ai_chat.show().map_err(|e| e.to_string())?;
-    } else {
-        let main_window = app.get_window("main").ok_or("Main window not found")?;
-        let builder = WebviewBuilder::new(
-            "ai-chat",
-            WebviewUrl::External(url_parsed.clone()),
-        )
-        .initialization_script(AI_CHAT_INIT_SCRIPT);
-        main_window.add_child(
-            builder,
-            LogicalPosition::new(doc_w, 0.0),
-            LogicalSize::new(chat_w, main_h),
-        ).map_err(|e| e.to_string())?;
+    let ai_chat = get_or_create_ai_chat(&app, &url_parsed, doc_w, 0.0, chat_w, main_h)?;
+    if need_nav {
+        ai_chat.navigate(url_parsed.clone()).map_err(|e| e.to_string())?;
     }
+    set_ai_chat_geometry(&app, doc_w, 0.0, chat_w, main_h)?;
+    ai_chat.show().map_err(|e| e.to_string())?;
 
     // Update shared header state and push to the webview
     let st = HeaderState {
@@ -243,9 +289,7 @@ fn open_ai_chat(
         url: url.clone(),
     };
     if let Ok(mut guard) = state.lock() { *guard = st.clone(); }
-    if let Some(ai_chat) = app.get_webview_window("ai-chat") {
-        push_header_state(&ai_chat, &st);
-    }
+    push_header_state(&ai_chat, &st);
 
     app.emit("ai-chat-opened", ()).map_err(|e| e.to_string())?;
     Ok(())
@@ -279,25 +323,12 @@ fn open_ai_chat_popup(
     let prev_url = state.lock().map(|g| g.url.clone()).unwrap_or_default();
     let need_nav = prev_url != url;
 
-    if let Some(ai_chat) = app.get_webview_window("ai-chat") {
-        if need_nav {
-            ai_chat.navigate(url_parsed.clone()).map_err(|e| e.to_string())?;
-        }
-        set_ai_chat_geometry(&app, px, py, w, h)?;
-        ai_chat.show().map_err(|e| e.to_string())?;
-    } else {
-        let main_window = app.get_window("main").ok_or("Main window not found")?;
-        let builder = WebviewBuilder::new(
-            "ai-chat",
-            WebviewUrl::External(url_parsed.clone()),
-        )
-        .initialization_script(AI_CHAT_INIT_SCRIPT);
-        main_window.add_child(
-            builder,
-            LogicalPosition::new(px, py),
-            LogicalSize::new(w, h),
-        ).map_err(|e| e.to_string())?;
+    let ai_chat = get_or_create_ai_chat(&app, &url_parsed, px, py, w, h)?;
+    if need_nav {
+        ai_chat.navigate(url_parsed.clone()).map_err(|e| e.to_string())?;
     }
+    set_ai_chat_geometry(&app, px, py, w, h)?;
+    ai_chat.show().map_err(|e| e.to_string())?;
 
     let st = HeaderState {
         mode: "popup".into(),
@@ -307,9 +338,7 @@ fn open_ai_chat_popup(
         url: url.clone(),
     };
     if let Ok(mut guard) = state.lock() { *guard = st.clone(); }
-    if let Some(ai_chat) = app.get_webview_window("ai-chat") {
-        push_header_state(&ai_chat, &st);
-    }
+    push_header_state(&ai_chat, &st);
 
     app.emit("ai-chat-mode-changed", "popup").map_err(|e| e.to_string())?;
     Ok(())
