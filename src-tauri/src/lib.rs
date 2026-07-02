@@ -34,10 +34,13 @@ const AI_CHAT_INIT_SCRIPT: &str = r#"
 
   function invoke(cmd, args){
     try {
-      var t = window.__TAURI_INTERNALS__;
+      var t = window.__TAURI_INTERNALS__ || (window.__TAURI__ && window.__TAURI__.core);
       if (t && t.invoke) return t.invoke(cmd, args || {});
-    } catch(e){ console.warn('[ai-chat header] invoke failed', e); }
-    return Promise.reject(e || new Error('no tauri'));
+    } catch(e){
+      console.warn('[ai-chat header] invoke failed', e);
+      return Promise.reject(e);
+    }
+    return Promise.reject(new Error('no tauri'));
   }
 
   var btnStyle = 'padding:2px 8px;border:0;border-radius:4px;background:rgba(255,255,255,0.12);color:#fff;font:inherit;cursor:pointer;';
