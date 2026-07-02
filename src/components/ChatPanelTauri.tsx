@@ -1,111 +1,104 @@
-import { useChatPanel } from '../hooks/useChatPanelTauri'
+import { useCallback, useEffect, useRef } from 'react'
+import { invoke } from '@tauri-apps/api/core'
+import { MessageSquare, ChevronLeft, ChevronRight } from 'lucide-react'
+import { type ChatPanelState } from '../hooks/useChatPanelTauri'
 
-// --- Floating bubble ---
-function ChatBubble({ onClick }: { onClick: () => void }) {
-  return (
-    <div
-      className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-blue-600 shadow-lg flex items-center justify-center cursor-pointer hover:bg-blue-700 hover:scale-105 transition-all z-[9999]"
-      onClick={onClick}
-      title="打开 AI Chat"
-    >
-      <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-      </svg>
-    </div>
-  )
-}
+const NUDGE = 40
 
-// --- Main ChatPanel component ---
-export function ChatPanel() {
-  const panel = useChatPanel()
+/**
+ * docusync-side chrome for the AI chat panel.
+ *
+ * - sidebar: a draggable divider at the right edge (widens the chat area by dragging left).
+ *   Because ai-chat is a separate OS webview, the cursor cannot cross into it, so dragging
+ *   right to narrow is handled by the ◀/▶ nudge buttons on the divider.
+ * - minimized: a restore bubble.
+ * - closed / popup: nothing (the floating panel owns its own injected header).
+ *
+ * `panel` is provided by ChatPanelContainer, which owns the single useChatPanel() instance.
+ */
+export function ChatPanel({ panel }: { panel: ChatPanelState }) {
+  const mainWidthRef = useRef<number>(0)
 
-  // --- Closed: show open button ---
-  if (panel.mode === 'closed') {
+  // Refresh the cached main-window width; used by the divider drag math.
+  const refreshMainWidth = useCallback(async () => {
+    try {
+      const size = await invoke<[number, number]>('get_main_size')
+      if (Array.isArray(size) && size.length === 2) mainWidthRef.current = size[0]
+    } catch { /* ignore */ }
+  }, [])
+
+  // Populate the width cache on mount and whenever the mode flips into sidebar.
+  useEffect(() => { void refreshMainWidth() }, [refreshMainWidth, panel.mode])
+
+  const startDrag = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    let raf = 0
+    const onMove = (ev: MouseEvent) => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        const mainW = mainWidthRef.current || window.innerWidth + panel.sidebarWidth
+        const newWidth = mainW - ev.clientX
+        panel.resizeSidebar(newWidth)
+      })
+    }
+    const stop = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', stop)
+      document.removeEventListener('mouseleave', stop)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', stop)
+    document.addEventListener('mouseleave', stop)
+  }, [panel])
+
+  // --- sidebar mode: draggable divider + nudge buttons ---
+  if (panel.mode === 'sidebar') {
+    return (
+      <div
+        onMouseDown={startDrag}
+        className="fixed top-0 right-0 bottom-0 w-1.5 cursor-col-resize z-[9998] bg-border/60 hover:bg-primary/40 transition-colors group"
+        title="拖拽调整聊天宽度"
+      >
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-0.5 bg-surface-card border border-border rounded-full shadow-[0_2px_8px_rgba(0,0,0,0.12)] px-1 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => panel.resizeSidebar(panel.sidebarWidth + NUDGE)}
+            className="p-1 rounded-full text-text-secondary hover:text-primary hover:bg-surface-alt transition-colors"
+            title="加宽聊天区"
+          >
+            <ChevronLeft className="w-3 h-3" />
+          </button>
+          <button
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => panel.resizeSidebar(panel.sidebarWidth - NUDGE)}
+            className="p-1 rounded-full text-text-secondary hover:text-primary hover:bg-surface-alt transition-colors"
+            title="收窄聊天区"
+          >
+            <ChevronRight className="w-3 h-3" />
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // --- minimized mode: restore bubble ---
+  if (panel.mode === 'minimized') {
     return (
       <button
-        onClick={() => panel.openSidebar()}
-        className="fixed bottom-6 right-6 px-4 py-3 bg-blue-600 text-white rounded-full shadow-lg flex items-center gap-2 hover:bg-blue-700 transition-all z-[9999]"
+        onClick={panel.restore}
+        className="fixed bottom-6 right-6 w-12 h-12 rounded-full bg-primary text-white shadow-lg flex items-center justify-center hover:bg-primary/90 hover:scale-105 transition-all z-[9999]"
+        title="恢复 AI Chat"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-        </svg>
-        <span className="text-sm font-medium">AI Chat</span>
+        <MessageSquare className="w-5 h-5" />
       </button>
     )
   }
 
-  // --- Sidebar mode: show control bar ---
-  if (panel.mode === 'sidebar') {
-    return (
-      <div className="fixed top-0 right-0 z-[9999] flex items-center gap-1 px-2 py-1 bg-gray-900/90 backdrop-blur-sm rounded-bl-lg shadow-md">
-        <span className="text-xs text-white/80 mr-2">{panel.currentTitle || 'AI Chat'}</span>
-        <button
-          onClick={panel.togglePopup}
-          className="p-1.5 rounded text-white/70 hover:text-white hover:bg-white/10 transition-colors"
-          title="弹出为独立窗口"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-          </svg>
-        </button>
-        <button
-          onClick={panel.minimize}
-          className="p-1.5 rounded text-white/70 hover:text-white hover:bg-white/10 transition-colors"
-          title="最小化"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
-          </svg>
-        </button>
-        <button
-          onClick={panel.close}
-          className="p-1.5 rounded text-white/70 hover:text-white hover:bg-white/10 transition-colors"
-          title="关闭"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-    )
-  }
-
-  // --- Popup mode: show control bar ---
-  if (panel.mode === 'popup') {
-    return (
-      <div className="fixed top-0 right-0 z-[9999] flex items-center gap-1 px-2 py-1 bg-gray-900/90 backdrop-blur-sm rounded-bl-lg shadow-md">
-        <span className="text-xs text-white/80 mr-2">{panel.currentTitle || 'AI Chat'} (独立窗口)</span>
-        <button
-          onClick={panel.togglePopup}
-          className="p-1.5 rounded text-white/70 hover:text-white hover:bg-white/10 transition-colors"
-          title="切换为侧栏"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-          </svg>
-        </button>
-        <button
-          onClick={panel.minimize}
-          className="p-1.5 rounded text-white/70 hover:text-white hover:bg-white/10 transition-colors"
-          title="最小化"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
-          </svg>
-        </button>
-        <button
-          onClick={panel.close}
-          className="p-1.5 rounded text-white/70 hover:text-white hover:bg-white/10 transition-colors"
-          title="关闭"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-    )
-  }
-
-  // --- Minimized: show bubble ---
-  return <ChatBubble onClick={panel.restore} />
+  // closed / popup: nothing to render on the docusync side
+  return null
 }

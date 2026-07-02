@@ -35,6 +35,9 @@
     "core:webview:allow-set-webview-size",
     "core:webview:allow-set-webview-position",
     "core:webview:allow-set-webview-focus",
+    "core:event:default",
+    "core:event:allow-emit",
+    "core:event:allow-listen",
     "shell:allow-open"
   ]
 }

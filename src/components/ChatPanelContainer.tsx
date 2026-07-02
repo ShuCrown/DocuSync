@@ -1,8 +1,9 @@
-import { lazy, Suspense, useCallback, useState } from 'react'
+import { lazy, Suspense } from 'react'
 import { isTauri } from '../utils/tauri'
+import { useChatPanel } from '../hooks/useChatPanelTauri'
 import type { ReactNode } from 'react'
 
-// Lazy load Tauri-specific component
+// Lazy load the Tauri-side chrome (divider + restore bubble).
 const ChatPanelTauri = lazy(() =>
   import('./ChatPanelTauri').then((m) => ({ default: m.ChatPanel }))
 )
@@ -14,64 +15,35 @@ interface ChatPanelContainerProps {
 /**
  * Container that provides Tauri chat panel integration.
  * In browser mode, children receive a no-op openChat function.
- * In Tauri mode, children receive a function that opens the sidebar.
+ * In Tauri mode, a single useChatPanel() instance owns all chat state and
+ * children receive panel.openChat (routes through the state machine, not a
+ * direct invoke bypass).
  */
 export function ChatPanelContainer({ children }: ChatPanelContainerProps) {
-  const [chatUrl, setChatUrl] = useState<string | null>(null)
-  const [chatTitle, setChatTitle] = useState<string | null>(null)
-
-  const handleOpenChat = useCallback((url: string, title: string) => {
-    setChatUrl(url)
-    setChatTitle(title)
-  }, [])
-
   if (!isTauri()) {
     // Browser mode: no-op
     return <>{children(() => {})}</>
   }
 
-  // Tauri mode: render chat panel with lazy-loaded components
+  // Tauri mode: the hook is called only here (after the browser-mode early
+  // return), so its invoke/listen calls never fire in a browser environment.
   return (
     <Suspense fallback={null}>
-      <TauriChatPanel
-        chatUrl={chatUrl}
-        chatTitle={chatTitle}
-        onOpen={handleOpenChat}
-      >
-        {children}
-      </TauriChatPanel>
+      <TauriChatPanel>{children}</TauriChatPanel>
     </Suspense>
   )
 }
 
 function TauriChatPanel({
-  onOpen,
   children,
 }: {
-  chatUrl: string | null
-  chatTitle: string | null
-  onOpen: (url: string, title: string) => void
   children: (openChat: (url: string, title: string) => void) => ReactNode
 }) {
-  // This is a simplified version - in real Tauri, the hook would be called at component level
-  // For now, we'll use a callback-based approach
-  const openChat = useCallback(
-    (url: string, title: string) => {
-      onOpen(url, title)
-      // In Tauri environment, invoke the command directly
-      if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
-        import('@tauri-apps/api/core').then(({ invoke }) => {
-          invoke('open_ai_chat', { url, title })
-        })
-      }
-    },
-    [onOpen]
-  )
-
+  const panel = useChatPanel()
   return (
     <>
-      {children(openChat)}
-      <ChatPanelTauri />
+      {children(panel.openChat)}
+      <ChatPanelTauri panel={panel} />
     </>
   )
 }
