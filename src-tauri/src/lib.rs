@@ -1,4 +1,5 @@
 use std::sync::Mutex;
+use serde::Serialize;
 use tauri::{Emitter, Manager, State, WebviewUrl, LogicalPosition, LogicalSize, WebviewBuilder};
 
 // --- Initialization script for the DocuSync webview: route window.open() to the AI chat sidebar ---
