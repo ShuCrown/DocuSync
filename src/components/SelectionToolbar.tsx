@@ -111,7 +111,7 @@ export function SelectionToolbar() {
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
 
-    // Open popup — in Pake with --multi-window, opens as a new window within the app
+    // Open popup for AI Q&A
     const w = 900, h = 700
     window.open(
       service.url,

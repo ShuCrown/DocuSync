@@ -404,8 +404,8 @@ export default function App() {
         />
       )}
 
-      {/* Selection toolbar for AI Q&A — disabled in Pake mode where PakeOverlay handles it */}
-      {activeFile && import.meta.env.MODE !== 'pake' && <SelectionToolbar />}
+      {/* Selection toolbar for AI Q&A */}
+      {activeFile && <SelectionToolbar />}
 
       {/* Duplicate file confirmation */}
       {pendingDuplicate && (

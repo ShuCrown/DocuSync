@@ -12,11 +12,7 @@
     "pages:deploy": "wrangler pages deploy",
     "worker:dev": "cd worker && wrangler dev",
     "worker:deploy": "cd worker && wrangler deploy",
-    "deploy": "npm run worker:deploy && npm run pages:deploy",
-    "dev:pake": "vite --mode pake",
-    "build:pake": "tsc -b && vite build --mode pake",
-    "build:pake-private": "tsc -b && VITE_MODE=private vite build --mode pake",
-    "pack:mac": "tsc -b && vite build --mode pake && pake dist/index.pake.html --name DocuSync --icon public/favicon.svg --targets apple --width 1200 --height 800 --hide-title-bar --use-local-file --new-window --multi-window --force-internal-navigation"
+    "deploy": "npm run worker:deploy && npm run pages:deploy"
   },
   "dependencies": {
     "docx-preview": "^0.3.3",
