@@ -237,6 +237,12 @@ fn relayout(app: &tauri::AppHandle, state: &Mutex<HeaderState>) -> Result<(), St
 /// when the webview was destroyed (e.g. by a bad navigation) but its label remains
 /// stuck in Tauri's internal registry — `get_webview_window` returns `None` yet
 /// `add_child` rejects the duplicate label.
+///
+/// NOTE: `Window::add_child` returns the `WebviewWindow` directly. We MUST use that
+/// return value rather than re-looking it up via `get_webview_window`, because the
+/// freshly-created child webview is not always immediately resolvable by label (the
+/// registration can lag behind), which previously surfaced as
+/// "Failed to get ai-chat webview after creation".
 fn get_or_create_ai_chat(
     app: &tauri::AppHandle,
     url: &url::Url,
@@ -252,19 +258,17 @@ fn get_or_create_ai_chat(
 
     // Create new webview
     let main_window = app.get_window("main").ok_or("Main window not found")?;
-
-    match main_window.add_child(
+    let builder = || {
         WebviewBuilder::new("ai-chat", WebviewUrl::External(url.clone()))
-            .initialization_script(AI_CHAT_INIT_SCRIPT),
-        LogicalPosition::new(x, y),
-        LogicalSize::new(w, h),
-    ) {
-        Ok(_) => app
-            .get_webview_window("ai-chat")
-            .ok_or_else(|| "Failed to get ai-chat webview after creation".to_string()),
+            .initialization_script(AI_CHAT_INIT_SCRIPT)
+    };
+
+    match main_window.add_child(builder(), LogicalPosition::new(x, y), LogicalSize::new(w, h)) {
+        // Use the returned webview directly — do NOT re-lookup by label.
+        Ok(webview) => Ok(webview),
         Err(ref e) if e.to_string().contains("already exists") => {
-            // Label registered but webview inaccessible. Try to close the stale
-            // entry via every available lookup, then recreate.
+            // Label registered but webview inaccessible. Close every stale entry we can
+            // find, then recreate and use the returned webview.
             if let Some(stale) = app.get_webview_window("ai-chat") {
                 let _ = stale.close();
             }
@@ -273,25 +277,19 @@ fn get_or_create_ai_chat(
                     let _ = wv.close();
                 }
             }
-            // Retry creation
             main_window
-                .add_child(
-                    WebviewBuilder::new("ai-chat", WebviewUrl::External(url.clone()))
-                        .initialization_script(AI_CHAT_INIT_SCRIPT),
-                    LogicalPosition::new(x, y),
-                    LogicalSize::new(w, h),
-                )
-                .map_err(|e| e.to_string())?;
-            app.get_webview_window("ai-chat")
-                .ok_or_else(|| "Failed to get ai-chat webview after recreation".to_string())
+                .add_child(builder(), LogicalPosition::new(x, y), LogicalSize::new(w, h))
+                .map_err(|e| e.to_string())
         }
         Err(e) => Err(e.to_string()),
     }
 }
 
 // --- Sidebar mode: shrink docusync, place ai-chat on the right ---
+//     `async` is required: creating a webview inside a synchronous Tauri command
+//     deadlocks on Windows (see wry#583). Running on the async runtime avoids that.
 #[tauri::command]
-fn open_ai_chat(
+async fn open_ai_chat(
     app: tauri::AppHandle,
     state: State<'_, Mutex<HeaderState>>,
     url: String,
@@ -333,8 +331,9 @@ fn open_ai_chat(
 }
 
 // --- Floating mode: docusync full-width, ai-chat floats as a panel ---
+//     `async` for the same Windows-deadlock reason as `open_ai_chat`.
 #[tauri::command]
-fn open_ai_chat_popup(
+async fn open_ai_chat_popup(
     app: tauri::AppHandle,
     state: State<'_, Mutex<HeaderState>>,
     url: String,
