@@ -34,12 +34,17 @@ const AI_CHAT_INIT_SCRIPT: &str = r#"
 
   function invoke(cmd, args){
     try {
-      var t = window.__TAURI_INTERNALS__ || (window.__TAURI__ && window.__TAURI__.core);
-      if (t && t.invoke) return t.invoke(cmd, args || {});
+      // Prefer the public global Tauri API (requires app.withGlobalTauri=true);
+      // fall back to the internal bridge if available.
+      var pub = window.__TAURI__ && window.__TAURI__.core;
+      var internals = window.__TAURI_INTERNALS__;
+      var t = (pub && pub.invoke) ? pub : (internals && internals.invoke ? internals : null);
+      if (t) return t.invoke(cmd, args || {});
     } catch(e){
       console.warn('[ai-chat header] invoke failed', e);
       return Promise.reject(e);
     }
+    console.warn('[ai-chat header] no tauri bridge; __TAURI__=', window.__TAURI__, '__TAURI_INTERNALS__=', window.__TAURI_INTERNALS__);
     return Promise.reject(new Error('no tauri'));
   }
 

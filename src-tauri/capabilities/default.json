@@ -4,17 +4,18 @@
   "description": "Capability for the main window and AI chat webview",
   "remote": {
     "urls": [
-      "https://chat.deepseek.com/*",
-      "https://*.deepseek.com/*",
-      "https://www.doubao.com/*",
-      "https://*.doubao.com/*",
-      "https://kimi.moonshot.cn/*",
-      "https://*.moonshot.cn/*",
-      "https://tongyi.aliyun.com/*",
-      "https://*.aliyun.com/*"
+      "https://chat.deepseek.com/**",
+      "https://*.deepseek.com/**",
+      "https://www.doubao.com/**",
+      "https://*.doubao.com/**",
+      "https://kimi.moonshot.cn/**",
+      "https://*.moonshot.cn/**",
+      "https://tongyi.aliyun.com/**",
+      "https://*.aliyun.com/**"
     ]
   },
-  "windows": ["main", "ai-chat"],
+  "windows": ["main"],
+  "webviews": ["docusync", "ai-chat"],
   "permissions": [
     "core:default",
     "core:window:default",
