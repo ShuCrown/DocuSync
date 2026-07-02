@@ -1,5 +1,5 @@
 use std::sync::Mutex;
-use tauri::{Emitter, Manager, State, WebviewUrl, LogicalPosition, LogicalSize, WebviewBuilder};
+use tauri::{Emitter, Manager, State, WebviewUrl, LogicalPosition, LogicalSize, WebviewBuilder, Webview};
 
 // --- Initialization script for the DocuSync webview: route window.open() to the AI chat sidebar ---
 const DOCUSYNC_INIT_SCRIPT: &str = r#"
@@ -165,7 +165,7 @@ fn get_main_size(app: tauri::AppHandle) -> Result<(f64, f64), String> {
 }
 
 // Push the full header state to the ai-chat webview (best-effort).
-fn push_header_state(ai_chat: &tauri::WebviewWindow, st: &HeaderState) {
+fn push_header_state(ai_chat: &Webview, st: &HeaderState) {
     let js = format!(
         "(function(){{var h=window.__AIChatHeader;if(!h)return;h.setBounds({mw},{mh});h.setGeometry({x},{y},{w},{h});h.setTitle({title});h.setMode({mode});}})();",
         mw = st.main_w, mh = st.main_h,
@@ -177,7 +177,7 @@ fn push_header_state(ai_chat: &tauri::WebviewWindow, st: &HeaderState) {
 }
 
 fn set_docusync_geometry(app: &tauri::AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
-    if let Some(docusync) = app.get_webview_window("docusync") {
+    if let Some(docusync) = app.get_webview("docusync") {
         docusync.set_position(tauri::Position::Logical(LogicalPosition { x, y })).map_err(|e| e.to_string())?;
         docusync.set_size(tauri::Size::Logical(LogicalSize { width: w, height: h })).map_err(|e| e.to_string())?;
     }
@@ -185,7 +185,7 @@ fn set_docusync_geometry(app: &tauri::AppHandle, x: f64, y: f64, w: f64, h: f64)
 }
 
 fn set_ai_chat_geometry(app: &tauri::AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
-    if let Some(ai_chat) = app.get_webview_window("ai-chat") {
+    if let Some(ai_chat) = app.get_webview("ai-chat") {
         ai_chat.set_position(tauri::Position::Logical(LogicalPosition { x, y })).map_err(|e| e.to_string())?;
         ai_chat.set_size(tauri::Size::Logical(LogicalSize { width: w, height: h })).map_err(|e| e.to_string())?;
     }
@@ -213,7 +213,7 @@ fn open_ai_chat(
     let prev_url = state.lock().map(|g| g.url.clone()).unwrap_or_default();
     let need_nav = prev_url != url;
 
-    if let Some(ai_chat) = app.get_webview_window("ai-chat") {
+    if let Some(ai_chat) = app.get_webview("ai-chat") {
         if need_nav {
             ai_chat.navigate(url_parsed.clone()).map_err(|e| e.to_string())?;
         }
@@ -242,7 +242,7 @@ fn open_ai_chat(
         url: url.clone(),
     };
     if let Ok(mut guard) = state.lock() { *guard = st.clone(); }
-    if let Some(ai_chat) = app.get_webview_window("ai-chat") {
+    if let Some(ai_chat) = app.get_webview("ai-chat") {
         push_header_state(&ai_chat, &st);
     }
 
@@ -278,7 +278,7 @@ fn open_ai_chat_popup(
     let prev_url = state.lock().map(|g| g.url.clone()).unwrap_or_default();
     let need_nav = prev_url != url;
 
-    if let Some(ai_chat) = app.get_webview_window("ai-chat") {
+    if let Some(ai_chat) = app.get_webview("ai-chat") {
         if need_nav {
             ai_chat.navigate(url_parsed.clone()).map_err(|e| e.to_string())?;
         }
@@ -306,7 +306,7 @@ fn open_ai_chat_popup(
         url: url.clone(),
     };
     if let Ok(mut guard) = state.lock() { *guard = st.clone(); }
-    if let Some(ai_chat) = app.get_webview_window("ai-chat") {
+    if let Some(ai_chat) = app.get_webview("ai-chat") {
         push_header_state(&ai_chat, &st);
     }
 
@@ -316,14 +316,14 @@ fn open_ai_chat_popup(
 
 #[tauri::command]
 fn close_ai_chat(app: tauri::AppHandle, state: State<'_, Mutex<HeaderState>>) -> Result<(), String> {
-    if let Some(ai_chat) = app.get_webview_window("ai-chat") {
+    if let Some(ai_chat) = app.get_webview("ai-chat") {
         ai_chat.hide().map_err(|e| e.to_string())?;
     }
     let (main_w, main_h) = main_size(&app)?;
     set_docusync_geometry(&app, 0.0, 0.0, main_w, main_h)?;
 
     if let Ok(mut guard) = state.lock() { guard.mode = "closed".into(); }
-    if let Some(ai_chat) = app.get_webview_window("ai-chat") {
+    if let Some(ai_chat) = app.get_webview("ai-chat") {
         push_header_state(&ai_chat, &HeaderState { mode: "closed".into(), ..Default::default() });
     }
 
@@ -333,7 +333,7 @@ fn close_ai_chat(app: tauri::AppHandle, state: State<'_, Mutex<HeaderState>>) ->
 
 #[tauri::command]
 fn minimize_ai_chat(app: tauri::AppHandle, state: State<'_, Mutex<HeaderState>>) -> Result<(), String> {
-    if let Some(ai_chat) = app.get_webview_window("ai-chat") {
+    if let Some(ai_chat) = app.get_webview("ai-chat") {
         ai_chat.hide().map_err(|e| e.to_string())?;
     }
     let (main_w, main_h) = main_size(&app)?;
@@ -360,7 +360,7 @@ fn get_ai_chat_header_state(state: State<'_, Mutex<HeaderState>>) -> HeaderState
 
 #[tauri::command]
 fn resize_webview(app: tauri::AppHandle, label: String, width: f64, height: f64) -> Result<(), String> {
-    if let Some(webview) = app.get_webview_window(&label) {
+    if let Some(webview) = app.get_webview(&label) {
         webview.set_size(tauri::Size::Logical(LogicalSize { width, height }))
             .map_err(|e| e.to_string())?;
     }
@@ -369,7 +369,7 @@ fn resize_webview(app: tauri::AppHandle, label: String, width: f64, height: f64)
 
 #[tauri::command]
 fn move_webview(app: tauri::AppHandle, label: String, x: f64, y: f64) -> Result<(), String> {
-    if let Some(webview) = app.get_webview_window(&label) {
+    if let Some(webview) = app.get_webview(&label) {
         webview.set_position(tauri::Position::Logical(LogicalPosition { x, y }))
             .map_err(|e| e.to_string())?;
     }
