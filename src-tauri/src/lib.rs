@@ -40,26 +40,43 @@ const AI_CHAT_INIT_SCRIPT: &str = r#"
     return Promise.reject(e || new Error('no tauri'));
   }
 
-  var btnStyle = 'padding:2px 8px;border:0;border-radius:4px;background:rgba(255,255,255,0.12);color:#fff;font:inherit;cursor:pointer;';
+  // Inline SVG icons for the header controls.
+  var icons = {
+    sidebar: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>',
+    popup: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>',
+    minimize: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+    close: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
+  };
+
+  var btnBase = 'display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:#fff;font:12px/1 -apple-system,system-ui,sans-serif;cursor:pointer;transition:background .15s;';
 
   function build(){
     if (!document.body){ setTimeout(build, 50); return; }
     if (document.getElementById('__ai_chat_header')) return;
     var bar = document.createElement('div');
     bar.id = '__ai_chat_header';
-    bar.style.cssText = 'position:fixed;top:0;left:0;right:0;height:30px;z-index:2147483647;display:flex;align-items:center;gap:4px;padding:0 8px;background:rgba(20,20,20,0.85);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);color:#fff;font:12px/1 -apple-system,system-ui,sans-serif;user-select:none;';
+    bar.style.cssText = 'position:fixed;top:0;left:0;right:0;height:34px;z-index:2147483647;display:flex;align-items:center;gap:6px;padding:0 10px;background:rgba(28,28,30,0.92);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-bottom:1px solid rgba(255,255,255,0.08);color:#fff;font:13px/1 -apple-system,system-ui,sans-serif;user-select:none;';
     bar.innerHTML =
-      '<span id="__ai_chat_title" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.9;">AI Chat</span>' +
-      '<button data-act="sidebar" style="'+btnStyle+'">分屏</button>' +
-      '<button data-act="popup" style="'+btnStyle+'">悬浮</button>' +
-      '<button data-act="minimize" style="'+btnStyle+'">收起</button>' +
-      '<button data-act="close" style="'+btnStyle+'">关闭</button>';
+      '<span id="__ai_chat_title" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.9;padding-right:8px;">AI Chat</span>' +
+      '<button data-act="sidebar" style="'+btnBase+'" title="分屏">'+icons.sidebar+'<span>分屏</span></button>' +
+      '<button data-act="popup" style="'+btnBase+'" title="悬浮窗口">'+icons.popup+'<span>悬浮</span></button>' +
+      '<button data-act="minimize" style="'+btnBase+'" title="收起">'+icons.minimize+'<span>收起</span></button>' +
+      '<button data-act="close" style="'+btnBase+'" title="关闭">'+icons.close+'<span>关闭</span></button>';
     document.body.appendChild(bar);
 
     bar.addEventListener('click', function(e){
       var btn = e.target.closest('button[data-act]');
       if (!btn) return;
       invoke('ai_chat_header_action', { action: btn.getAttribute('data-act') });
+    });
+
+    bar.addEventListener('mouseover', function(e){
+      var btn = e.target.closest('button[data-act]');
+      if (btn) btn.style.background = 'rgba(255,255,255,0.15)';
+    });
+    bar.addEventListener('mouseout', function(e){
+      var btn = e.target.closest('button[data-act]');
+      if (btn) applyButtonState(btn);
     });
 
     // Drag handle (popup mode only)
@@ -105,13 +122,16 @@ const AI_CHAT_INIT_SCRIPT: &str = r#"
     var t = document.getElementById('__ai_chat_title');
     if (t) t.textContent = state.title || location.hostname;
   }
+  function applyButtonState(btn){
+    var active = btn.getAttribute('data-act') === state.mode;
+    btn.style.background = active ? 'rgba(255,255,255,0.22)' : 'transparent';
+    btn.style.opacity = active ? '1' : '0.75';
+  }
   function applyMode(){
     var bar = document.getElementById('__ai_chat_header');
     if (!bar) return;
     bar.style.cursor = state.mode === 'popup' ? 'move' : 'default';
-    bar.querySelectorAll('button[data-act]').forEach(function(b){
-      b.style.opacity = (b.getAttribute('data-act') === state.mode) ? '1' : '0.6';
-    });
+    bar.querySelectorAll('button[data-act]').forEach(applyButtonState);
   }
 
   window.__AIChatHeader = {

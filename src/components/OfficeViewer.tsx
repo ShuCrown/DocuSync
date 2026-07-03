@@ -190,7 +190,7 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
     return (
       <>
         <div className="relative office-doc bg-surface-card overflow-y-auto h-full">
-          <div ref={containerRef} className="docx-render-container py-4 px-10" />
+          <div ref={containerRef} className="docx-render-container py-4 px-4 sm:px-6 lg:px-10" />
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center p-12 text-text-secondary bg-surface-card/80">
               <Loader2 className="w-6 h-6 animate-spin mr-2" />
@@ -250,7 +250,7 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
                 {(tableData[idx] ?? []).map((row, rowIdx) => (
                   <tr key={rowIdx} className={rowIdx === 0 ? 'bg-surface-alt font-medium' : ''}>
                     {row.map((cell, colIdx) => (
-                      <td key={colIdx} className="border border-border px-3 py-1.5 text-text whitespace-nowrap">
+                      <td key={colIdx} className="border border-border px-3 py-1.5 text-text min-w-0 break-words">
                         {cell ?? ''}
                       </td>
                     ))}

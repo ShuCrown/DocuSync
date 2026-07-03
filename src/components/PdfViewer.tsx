@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
-import { ZoomIn, ZoomOut } from 'lucide-react'
+import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
 
 // Set worker source
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -18,14 +18,36 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
   const latestOnTextExtractedRef = useRef(onTextExtracted)
   const [pdf, setPdf] = useState<pdfjsLib.PDFDocumentProxy | null>(null)
   const [totalPages, setTotalPages] = useState(0)
-  const [scale, setScale] = useState(1.5)
   const [currentPage, setCurrentPage] = useState(1)
+  const [containerWidth, setContainerWidth] = useState(0)
+  // userZoom is a multiplier on top of the fit-to-width scale.
+  // 1.0 = fit width, 0.5 = half width, 2.0 = double width.
+  const [userZoom, setUserZoom] = useState(1)
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map())
   const renderTasks = useRef<Map<number, pdfjsLib.RenderTask>>(new Map())
 
   useEffect(() => {
     latestOnTextExtractedRef.current = onTextExtracted
   }, [onTextExtracted])
+
+  // Track container width so pages can fit the pane responsively.
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+
+    const updateWidth = () => {
+      setContainerWidth(el.clientWidth)
+    }
+    updateWidth()
+
+    const observer = new ResizeObserver(updateWidth)
+    observer.observe(el)
+    window.addEventListener('resize', updateWidth)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', updateWidth)
+    }
+  }, [])
 
   // Load PDF
   useEffect(() => {
@@ -37,6 +59,7 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
       setPdf(doc)
       setTotalPages(doc.numPages)
       setCurrentPage(1)
+      setUserZoom(1)
     }
     load()
     return () => { cancelled = true }
@@ -64,8 +87,17 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
     return () => { cancelled = true }
   }, [pdf])
 
+  // Compute the base scale that makes a page fill the container width (minus a small gap).
+  const fitScale = useCallback(async () => {
+    if (!pdf || containerWidth <= 0) return 1
+    const firstPage = await pdf.getPage(1)
+    const viewport = firstPage.getViewport({ scale: 1 })
+    const gap = 32 // account for page shadow/gutter
+    return Math.max(0.25, (containerWidth - gap) / viewport.width)
+  }, [pdf, containerWidth])
+
   // Render a single page into its container
-  const renderPage = useCallback(async (num: number) => {
+  const renderPage = useCallback(async (num: number, scaleOverride?: number) => {
     if (!pdf) return
     const container = pageRefs.current.get(num)
     if (!container) return
@@ -81,17 +113,25 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
     container.innerHTML = ''
 
     const page = await pdf.getPage(num)
+    const base = await fitScale()
+    const scale = scaleOverride ?? base * userZoom
+
     const viewport = page.getViewport({ scale })
 
     const canvas = document.createElement('canvas')
-    canvas.width = viewport.width
-    canvas.height = viewport.height
+    // Render at device pixel ratio for crisp output on HiDPI screens.
+    const dpr = window.devicePixelRatio || 1
+    canvas.width = Math.floor(viewport.width * dpr)
+    canvas.height = Math.floor(viewport.height * dpr)
     canvas.style.width = `${viewport.width}px`
     canvas.style.height = `${viewport.height}px`
-    canvas.className = 'mx-auto'
+    canvas.style.maxWidth = '100%'
+    canvas.style.height = 'auto'
+    canvas.className = 'mx-auto shadow-sm'
     container.appendChild(canvas)
 
     const ctx = canvas.getContext('2d')!
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     const task = page.render({ canvas, canvasContext: ctx, viewport })
     renderTasks.current.set(num, task)
 
@@ -102,15 +142,19 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
     } finally {
       renderTasks.current.delete(num)
     }
-  }, [pdf, scale])
+  }, [pdf, userZoom, fitScale])
 
-  // Re-render all pages when scale changes
+  // Re-render all pages when zoom or container width changes
   useEffect(() => {
     if (!pdf) return
-    for (let i = 1; i <= pdf.numPages; i++) {
-      renderPage(i)
+    const renderAll = async () => {
+      const base = await fitScale()
+      for (let i = 1; i <= pdf.numPages; i++) {
+        await renderPage(i, base * userZoom)
+      }
     }
-  }, [pdf, scale, renderPage])
+    renderAll()
+  }, [pdf, userZoom, containerWidth, renderPage, fitScale])
 
   // Track current page via IntersectionObserver
   useEffect(() => {
@@ -136,19 +180,27 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
     return () => observer.disconnect()
   }, [totalPages])
 
-  const zoomIn = () => setScale((s) => Math.min(3, s + 0.25))
-  const zoomOut = () => setScale((s) => Math.max(0.5, s - 0.25))
+  const zoomIn = () => setUserZoom((z) => Math.min(3, z + 0.1))
+  const zoomOut = () => setUserZoom((z) => Math.max(0.5, z - 0.1))
+  const resetZoom = () => setUserZoom(1)
 
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
       <div className="flex items-center justify-center gap-3 py-2 px-4 bg-surface-card border-b border-border shrink-0">
-        <button onClick={zoomOut} className="p-1.5 hover:text-primary transition-colors text-text-secondary">
+        <button onClick={zoomOut} className="p-1.5 hover:text-primary transition-colors text-text-secondary" title="缩小">
           <ZoomOut className="w-4 h-4" />
         </button>
-        <span className="text-sm text-text-secondary min-w-[48px] text-center tabular-nums">{Math.round(scale * 100)}%</span>
-        <button onClick={zoomIn} className="p-1.5 hover:text-primary transition-colors text-text-secondary">
+        <span className="text-sm text-text-secondary min-w-[48px] text-center tabular-nums">{Math.round(userZoom * 100)}%</span>
+        <button onClick={zoomIn} className="p-1.5 hover:text-primary transition-colors text-text-secondary" title="放大">
           <ZoomIn className="w-4 h-4" />
+        </button>
+        <button
+          onClick={resetZoom}
+          className="p-1.5 hover:text-primary transition-colors text-text-secondary"
+          title="适应宽度"
+        >
+          <Maximize2 className="w-4 h-4" />
         </button>
         <div className="w-px h-4 bg-border mx-1" />
         <span className="text-sm text-text-secondary tabular-nums">
@@ -167,8 +219,8 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
               key={num}
               data-page={num}
               ref={(el) => { if (el) pageRefs.current.set(num, el) }}
-              className="bg-white shadow-[0_2px_8px_rgba(0,0,0,0.15)]"
-              style={{ minHeight: '400px' }}
+              className="bg-white shadow-[0_2px_8px_rgba(0,0,0,0.15)] px-2"
+              style={{ minHeight: '400px', maxWidth: '100%' }}
             />
           ))}
         </div>
