@@ -138,7 +138,7 @@ export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, ti
         style={{ top: pos.top, left: pos.left, transform: 'translate(-50%, -100%)' }}
         onMouseDown={(e) => e.preventDefault()}
       >
-        <div className="flex items-center gap-1 px-2 py-1.5 bg-surface-card rounded-lg shadow-[0_2px_12px_rgba(44,40,37,0.12)] border border-border">
+        <div className="flex items-center gap-1 px-2 py-1.5 bg-surface-card rounded-lg shadow-[0_2px_12px_rgba(44,40,37,0.12)] border border-border/60">
           {enabledServices.map((s) => (
             <button
               key={s.id}
@@ -175,7 +175,7 @@ export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, ti
         </div>
 
         <div className="flex justify-center">
-          <div className="w-2 h-2 bg-surface-card border-r border-b border-border rotate-45 -mt-1" />
+          <div className="w-2 h-2 bg-surface-card border-r border-b border-border/60 rotate-45 -mt-1" />
         </div>
       </div>
 

@@ -51,8 +51,8 @@ export function ChatPanel({ panel }: ChatPanelProps) {
 
   // All modes use fixed positioning so the component never moves between
   // DOM parents (which would unmount/remount and destroy the native webview).
-  const containerClass = 'fixed z-[9998] flex flex-col bg-surface-card overflow-hidden border border-border'
-    + (isFloating ? ' shadow-[0_8px_32px_rgba(0,0,0,0.18)] rounded-lg' : ' border-r-0 rounded-l-lg')
+  const containerClass = 'fixed z-[9998] flex flex-col bg-surface-card overflow-hidden border border-border/60 rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.08)]'
+    + (!isFloating ? ' border-l-2 border-l-border' : '')
 
   const containerStyle = isFloating
     ? {
@@ -62,10 +62,10 @@ export function ChatPanel({ panel }: ChatPanelProps) {
         height: panel.floatingRect.height,
       }
     : {
-        right: 0,
-        top: 56, // below the Layout header (h-14)
+        right: 6,
+        top: 6, // aligned with the main floating panel's padding
         width: panel.splitWidth,
-        bottom: 0,
+        bottom: 6,
       }
 
   return (
@@ -73,7 +73,7 @@ export function ChatPanel({ panel }: ChatPanelProps) {
       {/* Header — doubles as the drag handle in floating mode */}
       <div
         onMouseDown={isFloating ? startHeaderDrag : undefined}
-        className={`flex items-center gap-1.5 px-2.5 h-9 border-b border-border bg-surface-alt/60 shrink-0 ${
+        className={`flex items-center gap-1.5 px-2.5 h-9 border-b border-border/40 bg-surface-alt/40 shrink-0 ${
           isFloating ? 'cursor-move select-none' : ''
         }`}
       >
@@ -174,10 +174,10 @@ export function ChatRestoreBubble({ onClick }: { onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="fixed bottom-6 right-6 w-12 h-12 rounded-full bg-primary text-white shadow-lg flex items-center justify-center hover:bg-primary/90 hover:scale-105 transition-all z-[9999]"
+      className="fixed bottom-4 right-4 w-11 h-11 rounded-xl bg-surface-card text-primary border border-border/60 shadow-[0_4px_24px_rgba(0,0,0,0.08)] flex items-center justify-center hover:bg-surface-alt/50 hover:scale-105 transition-all z-[9999]"
       title="恢复 AI Chat"
     >
-      <MessageSquare className="w-5 h-5" />
+      <MessageSquare className="w-4.5 h-4.5" />
     </button>
   )
 }

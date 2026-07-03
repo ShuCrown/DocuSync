@@ -274,7 +274,7 @@ export default function App() {
 
   const paneBPickerElement = useMemo(() => (
     <div className="h-full flex flex-col">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-surface-alt/40 shrink-0">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border/40 bg-surface-alt/40 shrink-0">
         <span className="text-xs font-medium text-text-secondary">选择对比文档</span>
         <button
           onClick={handlePaneBClose}
@@ -309,7 +309,7 @@ export default function App() {
   const mainContent = (
     <>
       {!paneA && !uploadedFile ? (
-        <div className="flex-1 flex items-start justify-center px-4 sm:px-6 py-12">
+        <div className="flex-1 flex items-start justify-center px-4 sm:px-6 py-8">
           <div className="w-full max-w-2xl">
             <FileUpload
               onFile={handleFileWithHistory}
@@ -369,13 +369,9 @@ export default function App() {
           splitMode={splitMode}
           onSplitToggle={handleSplitToggle}
           splitButtonRef={splitButtonRef}
+          chatSplitWidth={panel.mode === 'split' ? panel.splitWidth + 12 : undefined}
         >
-          {/* Main content — leave right margin for the split chat panel */}
-          <div className={panel.mode === 'split' ? 'flex-1 min-w-0 flex flex-col' : 'flex-1 min-w-0 flex flex-col'}
-            style={panel.mode === 'split' ? { marginRight: panel.splitWidth } : undefined}
-          >
-            {mainContent}
-          </div>
+          {mainContent}
 
           {/* Single ChatPanel instance — always mounted when not closed.
               Uses fixed positioning for all modes; split mode reserves space

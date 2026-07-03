@@ -43,7 +43,7 @@ fn to_logical(
 ) -> Result<(LogicalPosition<f64>, LogicalSize<f64>), String> {
     let sf = window.scale_factor().map_err(|e| e.to_string())?;
 
-    let position = LogicalPosition::new(bounds.x, bounds.y+36.0);
+    let position = LogicalPosition::new(bounds.x, bounds.y+24.0);
     let size = LogicalSize::new(bounds.width, bounds.height);
 
     eprintln!("[ai-chat-webview] bounds={bounds:?} sf={sf} position={position:?} size={size:?}");

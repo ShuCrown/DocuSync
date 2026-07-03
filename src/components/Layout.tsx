@@ -17,6 +17,8 @@ interface LayoutProps {
   splitMode?: 'single' | 'split'
   onSplitToggle?: () => void
   splitButtonRef?: React.RefObject<HTMLElement | null>
+  // Chat panel split width — shrinks the main panel to make room
+  chatSplitWidth?: number
 }
 
 export function Layout({
@@ -32,6 +34,7 @@ export function Layout({
   splitMode,
   onSplitToggle,
   splitButtonRef,
+  chatSplitWidth,
 }: LayoutProps) {
   const isSplit = splitMode === 'split'
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -50,141 +53,149 @@ export function Layout({
   }, [historyOpen])
 
   return (
-    <div data-split={isSplit || undefined} className="h-screen bg-surface flex flex-col overflow-hidden">
-      {/* Header */}
-      <header className="border-b border-border bg-surface-card/80 backdrop-blur-sm relative z-30">
-        <div className="w-full px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
-          {/* Left: brand + subtitle */}
-          <div className="flex items-center gap-2.5 min-w-0 flex-1">
-            <FileText className="w-5 h-5 text-primary shrink-0" />
-            <div className="flex items-baseline gap-2 min-w-0">
-              <span
-                onClick={currentFileName ? onBack : undefined}
-                className={`text-lg font-medium text-text tracking-tight whitespace-nowrap ${
-                  currentFileName
-                    ? 'cursor-pointer hover:text-primary transition-colors'
-                    : ''
-                }`}
-                title={currentFileName ? '返回首页' : undefined}
-              >
-                DocuSync
-              </span>
-              <span className="text-xs text-text-secondary tracking-wide hidden sm:inline whitespace-nowrap">
-                文档预览
-              </span>
+    <div
+      data-split={isSplit || undefined}
+      className="h-screen bg-surface flex flex-col overflow-hidden p-1.5"
+      style={chatSplitWidth ? { paddingRight: chatSplitWidth } : undefined}
+    >
+      {/* Unified floating panel: header + content */}
+      <div className="flex-1 flex flex-col min-h-0 rounded-xl overflow-hidden border border-border/60 shadow-[0_2px_16px_rgba(0,0,0,0.06)] bg-surface-card">
+
+        {/* Header — inside the floating panel */}
+        <header className="border-b border-border/40 bg-surface-alt/40 relative z-30 shrink-0">
+          <div className="w-full px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
+            {/* Left: brand + subtitle */}
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <FileText className="w-5 h-5 text-primary shrink-0" />
+              <div className="flex items-baseline gap-2 min-w-0">
+                <span
+                  onClick={currentFileName ? onBack : undefined}
+                  className={`text-lg font-medium text-text tracking-tight whitespace-nowrap ${
+                    currentFileName
+                      ? 'cursor-pointer hover:text-primary transition-colors'
+                      : ''
+                  }`}
+                  title={currentFileName ? '返回首页' : undefined}
+                >
+                  DocuSync
+                </span>
+                <span className="text-xs text-text-secondary tracking-wide hidden sm:inline whitespace-nowrap">
+                  文档预览
+                </span>
+              </div>
+            </div>
+
+            {/* Right: actions */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* Split button (only when file is open, hidden in split mode) */}
+              {currentFileName && !isSplit && onSplitToggle && (
+                <button
+                  ref={splitButtonRef as React.RefObject<HTMLButtonElement>}
+                  onClick={onSplitToggle}
+                  className="p-2 rounded-md text-text-secondary hover:text-text hover:bg-surface-alt/60 transition-colors"
+                  title="分屏对比"
+                >
+                  <Columns2 className="w-4.5 h-4.5" />
+                </button>
+              )}
+
+              {/* History dropdown */}
+              {history.length > 0 && (
+                <div className="relative" ref={historyRef}>
+                  <button
+                    onClick={() => setHistoryOpen((v) => !v)}
+                    className={`
+                      p-2 rounded-md transition-colors
+                      ${historyOpen
+                        ? 'bg-surface-alt text-text'
+                        : 'text-text-secondary hover:text-text hover:bg-surface-alt/60'
+                      }
+                    `}
+                    title="历史记录"
+                  >
+                    <Clock className="w-4.5 h-4.5" />
+                  </button>
+
+                  {historyOpen && (
+                    <div className="absolute right-0 top-full mt-1 w-80 max-h-[60vh] bg-surface-card border border-border rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.1)] overflow-hidden flex flex-col">
+                      {/* Dropdown header */}
+                      <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-surface-alt/40">
+                        <span className="text-xs font-medium text-text-secondary">最近查看</span>
+                        {onHistoryClear && (
+                          <button
+                            onClick={() => { onHistoryClear(); setHistoryOpen(false) }}
+                            className="text-[11px] text-text-secondary hover:text-error transition-colors"
+                          >
+                            清空
+                          </button>
+                        )}
+                      </div>
+
+                      {/* History list */}
+                      <div className="overflow-y-auto divide-y divide-border">
+                        {history.map((record) => (
+                          <div
+                            key={record.id}
+                            className="flex items-center gap-2.5 px-3 py-2.5 hover:bg-surface-alt/50 transition-colors group"
+                          >
+                            <button
+                              onClick={() => {
+                                onHistorySelect?.(record)
+                                setHistoryOpen(false)
+                              }}
+                              className="flex-1 min-w-0 text-left"
+                            >
+                              <p className="text-sm text-text truncate">{record.name}</p>
+                              <p className="text-[11px] text-text-secondary mt-0.5">
+                                <span className="inline-block px-1 py-0.5 bg-surface-alt rounded text-[10px] mr-1">
+                                  {getCategoryLabel(record.category)}
+                                </span>
+                                {formatTime(record.timestamp)}
+                              </p>
+                            </button>
+                            {onHistoryRemove && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  onHistoryRemove(record.id)
+                                }}
+                                className="p-0.5 rounded text-text-secondary/40 hover:text-error opacity-0 group-hover:opacity-100 transition-all"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Account button */}
+              {onAccountOpen && (
+                <button
+                  onClick={onAccountOpen}
+                  className={`p-2 rounded-md transition-colors ${
+                    email
+                      ? 'text-primary hover:bg-primary/10'
+                      : 'text-text-secondary hover:text-text hover:bg-surface-alt/60'
+                  }`}
+                  title={email ? `已绑定: ${email}` : '账户管理'}
+                >
+                  <User className="w-4.5 h-4.5" />
+                </button>
+              )}
             </div>
           </div>
+        </header>
 
-          {/* Right: actions */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            {/* Split button (only when file is open, hidden in split mode) */}
-            {currentFileName && !isSplit && onSplitToggle && (
-              <button
-                ref={splitButtonRef as React.RefObject<HTMLButtonElement>}
-                onClick={onSplitToggle}
-                className="p-2 rounded-md text-text-secondary hover:text-text hover:bg-surface-alt/60 transition-colors"
-                title="分屏对比"
-              >
-                <Columns2 className="w-4.5 h-4.5" />
-              </button>
-            )}
+        {/* Main content area — fills the rest of the floating panel */}
+        <main className="flex-1 w-full flex flex-col min-h-0">
+          {children}
+        </main>
 
-            {/* History dropdown */}
-            {history.length > 0 && (
-              <div className="relative" ref={historyRef}>
-                <button
-                  onClick={() => setHistoryOpen((v) => !v)}
-                  className={`
-                    p-2 rounded-md transition-colors
-                    ${historyOpen
-                      ? 'bg-surface-alt text-text'
-                      : 'text-text-secondary hover:text-text hover:bg-surface-alt/60'
-                    }
-                  `}
-                  title="历史记录"
-                >
-                  <Clock className="w-4.5 h-4.5" />
-                </button>
-
-                {historyOpen && (
-                  <div className="absolute right-0 top-full mt-1 w-80 max-h-[60vh] bg-surface-card border border-border rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.1)] overflow-hidden flex flex-col">
-                    {/* Dropdown header */}
-                    <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-surface-alt/40">
-                      <span className="text-xs font-medium text-text-secondary">最近查看</span>
-                      {onHistoryClear && (
-                        <button
-                          onClick={() => { onHistoryClear(); setHistoryOpen(false) }}
-                          className="text-[11px] text-text-secondary hover:text-error transition-colors"
-                        >
-                          清空
-                        </button>
-                      )}
-                    </div>
-
-                    {/* History list */}
-                    <div className="overflow-y-auto divide-y divide-border">
-                      {history.map((record) => (
-                        <div
-                          key={record.id}
-                          className="flex items-center gap-2.5 px-3 py-2.5 hover:bg-surface-alt/50 transition-colors group"
-                        >
-                          <button
-                            onClick={() => {
-                              onHistorySelect?.(record)
-                              setHistoryOpen(false)
-                            }}
-                            className="flex-1 min-w-0 text-left"
-                          >
-                            <p className="text-sm text-text truncate">{record.name}</p>
-                            <p className="text-[11px] text-text-secondary mt-0.5">
-                              <span className="inline-block px-1 py-0.5 bg-surface-alt rounded text-[10px] mr-1">
-                                {getCategoryLabel(record.category)}
-                              </span>
-                              {formatTime(record.timestamp)}
-                            </p>
-                          </button>
-                          {onHistoryRemove && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                onHistoryRemove(record.id)
-                              }}
-                              className="p-0.5 rounded text-text-secondary/40 hover:text-error opacity-0 group-hover:opacity-100 transition-all"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Account button */}
-            {onAccountOpen && (
-              <button
-                onClick={onAccountOpen}
-                className={`p-2 rounded-md transition-colors ${
-                  email
-                    ? 'text-primary hover:bg-primary/10'
-                    : 'text-text-secondary hover:text-text hover:bg-surface-alt/60'
-                }`}
-                title={email ? `已绑定: ${email}` : '账户管理'}
-              >
-                <User className="w-4.5 h-4.5" />
-              </button>
-            )}
-          </div>
-        </div>
-      </header>
-
-      {/* Main */}
-      <main className="flex-1 w-full flex flex-col min-h-0">
-        {children}
-      </main>
-
+      </div>
     </div>
   )
 }
