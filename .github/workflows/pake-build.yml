@@ -101,6 +101,7 @@ jobs:
           --targets x64
           --width 1200
           --height 800
+          --hide-title-bar
           --use-local-file
           --new-window
           ${{ inputs.debug == true && '--debug' || '' }}
