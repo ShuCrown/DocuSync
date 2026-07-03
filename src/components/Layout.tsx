@@ -53,7 +53,7 @@ export function Layout({
     <div data-split={isSplit || undefined} className="h-screen bg-surface flex flex-col overflow-hidden">
       {/* Header */}
       <header className="border-b border-border bg-surface-card/80 backdrop-blur-sm relative z-30">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
+        <div className="w-full px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
           {/* Left: brand + subtitle */}
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
             <FileText className="w-5 h-5 text-primary shrink-0" />

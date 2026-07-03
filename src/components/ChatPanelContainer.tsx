@@ -1,49 +1,19 @@
-import { lazy, Suspense } from 'react'
-import { isTauri } from '../utils/tauri'
-import { useChatPanel } from '../hooks/useChatPanelTauri'
 import type { ReactNode } from 'react'
-
-// Lazy load the Tauri-side chrome (divider + restore bubble).
-const ChatPanelTauri = lazy(() =>
-  import('./ChatPanelTauri').then((m) => ({ default: m.ChatPanel }))
-)
+import { useChatPanel, type ChatPanelState } from '../hooks/useChatPanel'
 
 interface ChatPanelContainerProps {
-  children: (openChat: (url: string, title: string) => void) => ReactNode
+  children: (openChat: (url: string, title: string) => void, panel: ChatPanelState) => ReactNode
 }
 
 /**
- * Container that provides Tauri chat panel integration.
- * In browser mode, children receive a no-op openChat function.
- * In Tauri mode, a single useChatPanel() instance owns all chat state and
- * children receive panel.openChat (routes through the state machine, not a
- * direct invoke bypass).
+ * Owns the single `useChatPanel` instance and exposes both the `openChat`
+ * callback and the full panel state to its children via a render prop.
+ *
+ * The panel itself (header + iframe) is rendered by App.tsx based on
+ * `panel.mode`, so this container stays a thin state provider — no Tauri
+ * coupling, works identically in browser and desktop builds.
  */
 export function ChatPanelContainer({ children }: ChatPanelContainerProps) {
-  if (!isTauri()) {
-    // Browser mode: no-op
-    return <>{children(() => {})}</>
-  }
-
-  // Tauri mode: the hook is called only here (after the browser-mode early
-  // return), so its invoke/listen calls never fire in a browser environment.
-  return (
-    <Suspense fallback={null}>
-      <TauriChatPanel>{children}</TauriChatPanel>
-    </Suspense>
-  )
-}
-
-function TauriChatPanel({
-  children,
-}: {
-  children: (openChat: (url: string, title: string) => void) => ReactNode
-}) {
   const panel = useChatPanel()
-  return (
-    <>
-      {children(panel.openChat)}
-      <ChatPanelTauri panel={panel} />
-    </>
-  )
+  return <>{children(panel.openChat, panel)}</>
 }

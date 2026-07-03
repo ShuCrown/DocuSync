@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom'
 import { Check, Settings } from 'lucide-react'
 import { useAIServices } from '../hooks/useAIServices'
 import { AISettingsPanel } from './AISettingsPanel'
-import { isTauri } from '../utils/tauri'
 import type { AIService } from '../hooks/useAIServices'
 
 // --- Icon component with fallback (exported for AISettingsPanel) ---
@@ -112,8 +111,9 @@ export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, ti
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
 
-    // Tauri: open in sidebar; Browser: open popup window
-    if (isTauri() && onOpenChat) {
+    // Open the inline chat panel (split / floating). Falls back to a popup
+    // window only when no openChat handler is wired up.
+    if (onOpenChat) {
       onOpenChat(service.url, service.name)
     } else {
       const w = 900, h = 700

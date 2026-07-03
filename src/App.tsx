@@ -12,6 +12,7 @@ import { SimplePaneHeader } from './components/SimplePaneHeader'
 import { DuplicateConfirm } from './components/DuplicateConfirm'
 import { ShareDialog } from './components/ShareDialog'
 import { ChatPanelContainer } from './components/ChatPanelContainer'
+import { ChatPanel, ChatRestoreBubble } from './components/ChatPanel'
 import { useFileUpload } from './hooks/useFileUpload'
 import { useFileHistory } from './hooks/useFileHistory'
 import { useAccount } from './hooks/useAccount'
@@ -302,9 +303,60 @@ export default function App() {
     </div>
   ), [handlePickerFile, history, handlePickerHistorySelect, removeHistory, clearHistory, handlePaneBClose])
 
+  // Main content (home / split-comparison / single document) — wrapped in a
+  // split row when the chat panel is docked so the document pane shrinks to
+  // make room for it.
+  const mainContent = (
+    <>
+      {!paneA && !uploadedFile ? (
+        <div className="flex-1 flex items-start justify-center px-4 sm:px-6 py-12">
+          <div className="w-full max-w-2xl">
+            <FileUpload
+              onFile={handleFileWithHistory}
+              currentFile={null}
+              uploading={uploading}
+              error={uploadError}
+            />
+            <FileHistory
+              history={history}
+              onSelect={handleHistorySelect}
+              onRemove={removeHistory}
+              onClear={clearHistory}
+            />
+          </div>
+        </div>
+      ) : isSplit ? (
+        <SplitPane
+          direction={splitDirection}
+          splitRatio={splitRatio}
+          onSplitRatioChange={setSplitRatio}
+          onSwap={swapPanes}
+          onDirectionChange={toggleDirection}
+          paneA={paneAElement}
+          paneB={paneB ? paneBElement : paneBPickerElement}
+        />
+      ) : (
+        <div className="flex-1 flex flex-col min-h-0">
+          <SimplePaneHeader
+            fileName={singleFile!.file.name}
+            docId={singleFile?.docId}
+            onClose={handleClear}
+            onShare={singleFile?.docId ? () => handleShareOpen(singleFile.docId!, singleFile.file.name) : undefined}
+          />
+          <div ref={handleSingleScrollRef} className="flex-1 overflow-auto">
+            <DocumentViewer
+              uploaded={singleFile!}
+              onTextExtracted={() => {}}
+            />
+          </div>
+        </div>
+      )}
+    </>
+  )
+
   return (
     <ChatPanelContainer>
-      {(openChat) => (
+      {(openChat, panel) => (
         <Layout
           currentFileName={paneA?.file.name ?? uploadedFile?.file.name ?? null}
           onBack={handleClear}
@@ -318,48 +370,23 @@ export default function App() {
           onSplitToggle={handleSplitToggle}
           splitButtonRef={splitButtonRef}
         >
-          {!paneA && !uploadedFile ? (
-            <div className="flex-1 flex items-start justify-center px-4 sm:px-6 py-12">
-              <div className="w-full max-w-2xl">
-                <FileUpload
-                  onFile={handleFileWithHistory}
-                  currentFile={null}
-                  uploading={uploading}
-                  error={uploadError}
-                />
-                <FileHistory
-                  history={history}
-                  onSelect={handleHistorySelect}
-                  onRemove={removeHistory}
-                  onClear={clearHistory}
-                />
-              </div>
-            </div>
-          ) : isSplit ? (
-            <SplitPane
-              direction={splitDirection}
-              splitRatio={splitRatio}
-              onSplitRatioChange={setSplitRatio}
-              onSwap={swapPanes}
-              onDirectionChange={toggleDirection}
-              paneA={paneAElement}
-              paneB={paneB ? paneBElement : paneBPickerElement}
-            />
-          ) : (
-            <div className="flex-1 flex flex-col min-h-0">
-              <SimplePaneHeader
-                fileName={singleFile!.file.name}
-                docId={singleFile?.docId}
-                onClose={handleClear}
-                onShare={singleFile?.docId ? () => handleShareOpen(singleFile.docId!, singleFile.file.name) : undefined}
-              />
-              <div ref={handleSingleScrollRef} className="flex-1 overflow-auto">
-                <DocumentViewer
-                  uploaded={singleFile!}
-                  onTextExtracted={() => {}}
-                />
-              </div>
-            </div>
+          {/* Main content — leave right margin for the split chat panel */}
+          <div className={panel.mode === 'split' ? 'flex-1 min-w-0 flex flex-col' : 'flex-1 min-w-0 flex flex-col'}
+            style={panel.mode === 'split' ? { marginRight: panel.splitWidth } : undefined}
+          >
+            {mainContent}
+          </div>
+
+          {/* Single ChatPanel instance — always mounted when not closed.
+              Uses fixed positioning for all modes; split mode reserves space
+              via marginRight on the main content above. */}
+          {panel.mode !== 'closed' && (
+            <ChatPanel panel={panel} />
+          )}
+
+          {/* Collapsed — restore bubble */}
+          {panel.mode === 'collapsed' && (
+            <ChatRestoreBubble onClick={panel.restore} />
           )}
 
           {/* Download loading overlay */}
