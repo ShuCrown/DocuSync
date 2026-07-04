@@ -1,262 +1,108 @@
-import { getDeviceId } from './device-id'
-import { isLocalMode, getRemoteApiBase } from './storage-mode'
+import { isLocalMode } from './storage-mode'
 import * as local from './api-local'
+import * as remote from './api-remote'
 
-// In a browser/Vite dev, '/api' is proxied by vite.config.ts. In Tauri remote
-// mode there is no origin, so fall back to the configured remote Worker base.
-const BASE = import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? '/api' : getRemoteApiBase())
-
-// Simple in-memory cache for GET requests to reduce repeated API calls.
-// Useful for high-latency connections (e.g. mainland China → Cloudflare).
-const cache = new Map<string, { data: unknown; expires: number }>()
-const CACHE_TTL = 30_000 // 30 seconds
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const isGet = !init?.method || init.method === 'GET'
-  const cacheKey = isGet ? path : ''
-
-  // Return cached response for GET requests within TTL
-  if (cacheKey) {
-    const hit = cache.get(cacheKey)
-    if (hit && hit.expires > Date.now()) {
-      return hit.data as T
-    }
-  }
-
-  const res = await fetch(`${BASE}${path}`, init)
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({})) as { error?: string }
-    throw new Error(body.error ?? `Request failed: ${res.status}`)
-  }
-  const data = await res.json() as T
-
-  // Cache successful GET responses
-  if (cacheKey) {
-    cache.set(cacheKey, { data, expires: Date.now() + CACHE_TTL })
-  }
-
-  return data
-}
-
-/** Invalidate cached GET responses that match a path prefix. */
-function invalidateCache(prefix: string) {
-  for (const key of cache.keys()) {
-    if (key.startsWith(prefix)) {
-      cache.delete(key)
-    }
-  }
-}
+export type { DocumentRecord, ShareRecord, ShareInfo } from './api-types'
 
 // Device
 export async function registerDevice() {
   if (isLocalMode()) return local.registerDevice()
-  const deviceId = getDeviceId()
-  return request<{ deviceId: string; email: string | null }>('/device/register', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ deviceId }),
-  })
+  return remote.registerDevice()
 }
 
 // Documents
-export interface DocumentRecord {
-  id: string
-  name: string
-  size: number
-  category: string
-  created_at: number
-}
-
 export async function uploadDocument(file: File, extractedText?: string) {
   if (isLocalMode()) return local.uploadDocument(file, extractedText)
-  const deviceId = getDeviceId()
-  const formData = new FormData()
-  formData.append('file', file)
-  formData.append('deviceId', deviceId)
-  if (extractedText) {
-    formData.append('extractedText', extractedText)
-  }
-
-  const result = await request<{ id: string; name: string; size: number; category: string; r2Key: string }>(
-    '/documents/upload',
-    { method: 'POST', body: formData }
-  )
-  invalidateCache('/documents')
-  return result
+  return remote.uploadDocument(file, extractedText)
 }
 
 export async function listDocuments() {
   if (isLocalMode()) return local.listDocuments()
-  const deviceId = getDeviceId()
-  return request<DocumentRecord[]>(`/documents?deviceId=${encodeURIComponent(deviceId)}`)
+  return remote.listDocuments()
 }
 
 export async function deleteDocument(docId: string) {
   if (isLocalMode()) return local.deleteDocument(docId)
-  const deviceId = getDeviceId()
-  const result = await request<{ success: true }>(`/documents/${docId}?deviceId=${encodeURIComponent(deviceId)}`, {
-    method: 'DELETE',
-  })
-  invalidateCache('/documents')
-  return result
+  return remote.deleteDocument(docId)
 }
 
 export async function downloadDocument(
   docId: string,
   onProgress?: (loaded: number, total: number) => void,
   expectedSize?: number,
-): Promise<Blob> {
+) {
   if (isLocalMode()) return local.downloadDocument(docId, onProgress, expectedSize)
-  const deviceId = getDeviceId()
-  const res = await fetch(`${BASE}/documents/${docId}/download?deviceId=${encodeURIComponent(deviceId)}`)
-  if (!res.ok) {
-    throw new Error(`Download failed: ${res.status}`)
-  }
+  return remote.downloadDocument(docId, onProgress, expectedSize)
+}
 
-  if (!res.body) {
-    return res.blob()
-  }
-
-  // Use Content-Length header, fall back to expectedSize from document record
-  const contentLength = Number(res.headers.get('Content-Length')) || expectedSize || 0
-  const reader = res.body.getReader()
-  const chunks: Uint8Array[] = []
-  let loaded = 0
-
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    chunks.push(value)
-    loaded += value.length
-    onProgress?.(loaded, contentLength)
-  }
-
-  return new Blob(chunks as BlobPart[], { type: res.headers.get('Content-Type') ?? 'application/octet-stream' })
+export async function getDocumentText(docId: string) {
+  if (isLocalMode()) return local.getDocumentText(docId)
+  return remote.getDocumentText(docId)
 }
 
 export async function summarizeDocument(docId: string, text?: string) {
   if (isLocalMode()) return local.summarizeDocument(docId, text)
-  return request<{ summary: string; cached: boolean }>(`/documents/${docId}/summarize`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
-  })
+  return remote.summarizeDocument(docId, text)
 }
 
 export async function getSummary(docId: string) {
   if (isLocalMode()) return local.getSummary(docId)
-  return request<{ summary: string | null; model?: string; createdAt?: number }>(
-    `/documents/${docId}/summary`
-  )
+  return remote.getSummary(docId)
 }
 
 // Account
 export async function bindEmail(email: string) {
   if (isLocalMode()) return local.bindEmail(email)
-  const deviceId = getDeviceId()
-  return request<{ message: string; cooldown?: number }>('/account/bind', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ deviceId, email }),
-  })
+  return remote.bindEmail(email)
 }
 
 export async function verifyBind(email: string, code: string) {
   if (isLocalMode()) return local.verifyBind(email, code)
-  const deviceId = getDeviceId()
-  return request<{ success: true; email: string }>('/account/bind/verify', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ deviceId, email, code }),
-  })
+  return remote.verifyBind(email, code)
 }
 
 export async function sendRecoverCode(email: string) {
   if (isLocalMode()) return local.sendRecoverCode(email)
-  return request<{ message: string; cooldown?: number }>('/account/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email }),
-  })
+  return remote.sendRecoverCode(email)
 }
 
 export async function recoverAccount(email: string, code: string) {
   if (isLocalMode()) return local.recoverAccount(email, code)
-  const deviceId = getDeviceId()
-  return request<{ devices: string[]; documents: DocumentRecord[] }>('/account/recover', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ deviceId, email, code }),
-  })
+  return remote.recoverAccount(email, code)
 }
 
 export async function getAccountInfo() {
   if (isLocalMode()) return local.getAccountInfo()
-  const deviceId = getDeviceId()
-  return request<{ email: string | null }>(`/account/info?deviceId=${encodeURIComponent(deviceId)}`)
+  return remote.getAccountInfo()
 }
 
 export async function unbindEmail() {
   if (isLocalMode()) return local.unbindEmail()
-  const deviceId = getDeviceId()
-  return request<{ success: true }>('/account/unbind', {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ deviceId }),
-  })
+  return remote.unbindEmail()
 }
 
 // Shares
-export interface ShareRecord {
-  id: string
-  document_id: string
-  expires_at: number
-  view_count: number
-  created_at: number
-}
-
-export interface ShareInfo {
-  name: string
-  category: string
-  expiresAt: number
-  viewCount: number
-}
-
-export async function createShare(docId: string, expiresIn: string): Promise<ShareRecord> {
+export async function createShare(docId: string, expiresIn: string) {
   if (isLocalMode()) return local.createShare(docId, expiresIn)
-  const deviceId = getDeviceId()
-  return request<ShareRecord>('/shares', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ documentId: docId, deviceId, expiresIn }),
-  })
+  return remote.createShare(docId, expiresIn)
 }
 
-export async function listShares(docId: string): Promise<ShareRecord[]> {
+export async function listShares(docId: string) {
   if (isLocalMode()) return local.listShares(docId)
-  const deviceId = getDeviceId()
-  return request<ShareRecord[]>(`/documents/${docId}/shares?deviceId=${encodeURIComponent(deviceId)}`)
+  return remote.listShares(docId)
 }
 
-export async function deleteShare(shareId: string): Promise<{ success: true }> {
+export async function deleteShare(shareId: string) {
   if (isLocalMode()) return local.deleteShare(shareId)
-  const deviceId = getDeviceId()
-  return request<{ success: true }>(`/shares/${shareId}?deviceId=${encodeURIComponent(deviceId)}`, {
-    method: 'DELETE',
-  })
+  return remote.deleteShare(shareId)
 }
 
-export async function getShareInfo(token: string): Promise<ShareInfo> {
+export async function getShareInfo(token: string) {
   if (isLocalMode()) return local.getShareInfo(token)
-  return request<ShareInfo>(`/share/${token}/info`)
+  return remote.getShareInfo(token)
 }
 
-export async function getShareContent(token: string): Promise<Response> {
+export async function getShareContent(token: string) {
   if (isLocalMode()) return local.getShareContent(token)
-  const res = await fetch(`${BASE}/share/${token}`)
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({})) as { error?: string }
-    throw new Error(body.error ?? `Request failed: ${res.status}`)
-  }
-  return res
+  return remote.getShareContent(token)
 }

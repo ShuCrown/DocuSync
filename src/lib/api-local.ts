@@ -19,7 +19,7 @@ import type {
   DocumentRecord,
   ShareRecord,
   ShareInfo,
-} from './api'
+} from './api-types'
 
 const LOCAL_NOT_SUPPORTED = '本地模式不支持此操作（账号绑定/分享需在线使用）'
 
@@ -177,6 +177,15 @@ export async function downloadDocument(
   const blob = new Blob([bytes], { type: 'application/octet-stream' })
   onProgress?.(bytes.length, bytes.length)
   return blob
+}
+
+export async function getDocumentText(docId: string): Promise<string | null> {
+  const db = await getDb()
+  const row = await db.select<{ extracted_text: string | null }[]>(
+    'SELECT extracted_text FROM documents WHERE id = ? AND device_id = ?',
+    [docId, getDeviceId()],
+  )
+  return row[0]?.extracted_text ?? null
 }
 
 // ---------------------------------------------------------------------------

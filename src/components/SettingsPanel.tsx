@@ -1,5 +1,5 @@
-import { useState, useEffect, useSyncExternalStore } from 'react'
-import { X, Settings, HardDrive, Cloud, Check, AlertCircle, RotateCw, FolderOpen } from 'lucide-react'
+import { useState, useEffect, useRef, useSyncExternalStore } from 'react'
+import { X, Settings, HardDrive, Cloud, Check, AlertCircle, RotateCw, FolderOpen, Upload, Download } from 'lucide-react'
 import {
   getStorageMode,
   setStorageMode,
@@ -12,6 +12,12 @@ import {
   canUseLocalMode,
   type StorageMode,
 } from '../lib/storage-mode'
+import {
+  migrateLocalToRemote,
+  migrateRemoteToLocal,
+  type MigrationProgress,
+  type MigrationResult,
+} from '../lib/api-migration'
 
 interface SettingsPanelProps {
   open: boolean
@@ -60,6 +66,10 @@ function SettingsPanelBody({ mode, remoteBase, onClose }: BodyProps) {
   const [showConfirm, setShowConfirm] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [localPath, setLocalPath] = useState<string | null>(null)
+  const [migrating, setMigrating] = useState(false)
+  const [progress, setProgress] = useState<MigrationProgress | null>(null)
+  const [result, setResult] = useState<MigrationResult | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
 
   const effectiveMode = pendingMode ?? mode
   const localAvailable = canUseLocalMode()
@@ -148,6 +158,41 @@ function SettingsPanelBody({ mode, remoteBase, onClose }: BodyProps) {
     }
   }
 
+  const guardedClose = () => {
+    if (migrating) return
+    onClose()
+  }
+
+  const startMigrate = async (direction: 'local-to-remote' | 'remote-to-local') => {
+    setError(null)
+    setResult(null)
+    setProgress(null)
+    setMigrating(true)
+    abortRef.current = new AbortController()
+
+    try {
+      const migrate = direction === 'local-to-remote' ? migrateLocalToRemote : migrateRemoteToLocal
+      const res = await migrate({
+        skipIfSameNameAndSize: true,
+        abortSignal: abortRef.current.signal,
+        onProgress: setProgress,
+      })
+      setResult(res)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '迁移失败'
+      if (message !== '迁移已取消') {
+        setError(message)
+      }
+    } finally {
+      setMigrating(false)
+      abortRef.current = null
+    }
+  }
+
+  const stopMigrate = () => {
+    abortRef.current?.abort()
+  }
+
   const confirmDescription = () => {
     if (modeChanged && baseChanged) {
       return `切换到「${pendingMode === 'local' ? '本地存储' : '云端存储'}」并更新远端服务地址，页面将重新加载，当前打开的文档会关闭`
@@ -161,7 +206,7 @@ function SettingsPanelBody({ mode, remoteBase, onClose }: BodyProps) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
-      onClick={onClose}
+      onClick={guardedClose}
     >
       <div
         className="bg-surface-card border border-border rounded-lg shadow-[0_8px_32px_rgba(0,0,0,0.12)] w-full max-w-md mx-4 overflow-hidden flex flex-col max-h-[80vh]"
@@ -174,7 +219,7 @@ function SettingsPanelBody({ mode, remoteBase, onClose }: BodyProps) {
             <span className="text-sm font-medium text-text">设置</span>
           </div>
           <button
-            onClick={onClose}
+            onClick={guardedClose}
             className="p-1 rounded-md hover:bg-surface-alt transition-colors text-text-secondary"
           >
             <X className="w-4 h-4" />
@@ -318,19 +363,96 @@ function SettingsPanelBody({ mode, remoteBase, onClose }: BodyProps) {
               云端模式下：所有功能可用，数据存于 Cloudflare R2 + D1。
             </div>
           )}
+
+          {/* Data migration — Tauri only */}
+          {localAvailable && (
+            <div className="space-y-2.5">
+              <div>
+                <p className="text-sm font-medium text-text">数据迁移</p>
+                <p className="text-xs text-text-secondary mt-0.5">
+                  在本地与云端之间复制文档，不会删除源端数据
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => startMigrate('local-to-remote')}
+                  disabled={migrating}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-text-secondary border border-border rounded-md hover:bg-surface-alt transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  上传到云端
+                </button>
+                <button
+                  onClick={() => startMigrate('remote-to-local')}
+                  disabled={migrating}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-text-secondary border border-border rounded-md hover:bg-surface-alt transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  下载到本地
+                </button>
+              </div>
+
+              {migrating && progress && (
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs text-text-secondary">
+                    <span className="truncate pr-2">{progress.currentName}</span>
+                    <span className="shrink-0">
+                      {progress.current}/{progress.total}
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-surface-alt rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary transition-all"
+                      style={{
+                        width: progress.total ? `${(progress.current / progress.total) * 100}%` : '0%',
+                      }}
+                    />
+                  </div>
+                  {progress.status === 'error' && progress.error && (
+                    <p className="text-xs text-error">{progress.error}</p>
+                  )}
+                  <button
+                    onClick={stopMigrate}
+                    className="w-full px-3 py-1.5 text-xs text-text-secondary border border-border rounded-md hover:bg-surface-alt transition-colors"
+                  >
+                    停止迁移
+                  </button>
+                </div>
+              )}
+
+              {result && !migrating && (
+                <div className="text-xs text-text-secondary p-3 bg-surface-alt/40 rounded-md space-y-1">
+                  <p>
+                    迁移完成：成功 {result.success} 个，跳过 {result.skipped} 个，失败 {result.failed} 个
+                  </p>
+                  {result.errors.length > 0 && (
+                    <ul className="space-y-0.5 text-error">
+                      {result.errors.map((e) => (
+                        <li key={e.name} className="truncate">
+                          {e.name}: {e.error}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer actions */}
         <div className="px-5 py-4 border-t border-border shrink-0 flex gap-3">
           <button
-            onClick={onClose}
-            className="flex-1 px-3 py-2 text-sm text-text-secondary border border-border rounded-md hover:bg-surface-alt transition-colors"
+            onClick={guardedClose}
+            disabled={migrating}
+            className="flex-1 px-3 py-2 text-sm text-text-secondary border border-border rounded-md hover:bg-surface-alt transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             关闭
           </button>
           <button
             onClick={handleSave}
-            disabled={!hasChanges}
+            disabled={!hasChanges || migrating}
             className="flex-1 px-3 py-2 text-sm font-medium text-white bg-primary rounded-md hover:bg-primary-dark disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             保存
