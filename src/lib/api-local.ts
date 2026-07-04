@@ -13,17 +13,13 @@ import Database from '@tauri-apps/plugin-sql'
 import { writeFile, readFile, remove, exists, mkdir } from '@tauri-apps/plugin-fs'
 import { appDataDir, join } from '@tauri-apps/api/path'
 import { getDeviceId } from './device-id'
+import { getRemoteApiBase } from './storage-mode'
 import { LOCAL_DB_NAME, LOCAL_SCHEMA_SQL } from './local-schema'
 import type {
   DocumentRecord,
   ShareRecord,
   ShareInfo,
 } from './api'
-
-// Remote Worker base used only for AI summarization in local mode.
-// Override with VITE_REMOTE_API_BASE if the Worker is deployed elsewhere.
-const REMOTE_API_BASE =
-  import.meta.env.VITE_REMOTE_API_BASE || 'https://docusync.pages.dev/api'
 
 const LOCAL_NOT_SUPPORTED = '本地模式不支持此操作（账号绑定/分享需在线使用）'
 
@@ -221,7 +217,7 @@ export async function summarizeDocument(docId: string, text?: string) {
   // 3. Call the deployed Worker. The remote endpoint accepts `text` in the
   //    body and uses it directly when the document isn't in its D1, so local
   //    docIds work fine. The remote cache will simply miss.
-  const res = await fetch(`${REMOTE_API_BASE}/documents/${docId}/summarize`, {
+  const res = await fetch(`${getRemoteApiBase()}/documents/${docId}/summarize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text: truncated }),
