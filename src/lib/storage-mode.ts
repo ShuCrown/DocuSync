@@ -15,7 +15,7 @@
 
 import { isTauri } from '../utils/tauri'
 import { appDataDir, join } from '@tauri-apps/api/path'
-import { open } from '@tauri-apps/plugin-shell'
+import { openPath } from '@tauri-apps/plugin-opener'
 import { exists, mkdir } from '@tauri-apps/plugin-fs'
 
 export type StorageMode = 'local' | 'remote'
@@ -115,5 +115,5 @@ export async function openLocalStorageFolder(): Promise<void> {
   if (!(await exists(root))) {
     await mkdir(root, { recursive: true })
   }
-  await open(root)
+  await openPath(root)
 }
