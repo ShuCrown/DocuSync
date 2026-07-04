@@ -1,11 +1,13 @@
-import { useState, useSyncExternalStore } from 'react'
-import { X, Settings, HardDrive, Cloud, Check, AlertCircle, RotateCw } from 'lucide-react'
+import { useState, useEffect, useSyncExternalStore } from 'react'
+import { X, Settings, HardDrive, Cloud, Check, AlertCircle, RotateCw, FolderOpen } from 'lucide-react'
 import {
   getStorageMode,
   setStorageMode,
   getRemoteApiBase,
   setRemoteApiBase,
   resetRemoteApiBase,
+  getLocalStorageRoot,
+  openLocalStorageFolder,
   subscribe,
   canUseLocalMode,
   type StorageMode,
@@ -57,9 +59,18 @@ function SettingsPanelBody({ mode, remoteBase, onClose }: BodyProps) {
   const [baseInput, setBaseInput] = useState(remoteBase)
   const [showConfirm, setShowConfirm] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [localPath, setLocalPath] = useState<string | null>(null)
 
   const effectiveMode = pendingMode ?? mode
   const localAvailable = canUseLocalMode()
+
+  useEffect(() => {
+    if (effectiveMode === 'local' && localAvailable) {
+      getLocalStorageRoot().then(setLocalPath).catch(() => setLocalPath(null))
+    } else {
+      setLocalPath(null)
+    }
+  }, [effectiveMode, localAvailable])
 
   const modeChanged = pendingMode !== null && pendingMode !== mode
   const baseChanged = effectiveMode === 'remote' && baseInput.trim() !== remoteBase
@@ -126,6 +137,15 @@ function SettingsPanelBody({ mode, remoteBase, onClose }: BodyProps) {
 
   const handleCancelConfirm = () => {
     setShowConfirm(false)
+  }
+
+  const handleOpenFolder = async () => {
+    setError(null)
+    try {
+      await openLocalStorageFolder()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '无法打开文件夹')
+    }
   }
 
   const confirmDescription = () => {
@@ -256,6 +276,32 @@ function SettingsPanelBody({ mode, remoteBase, onClose }: BodyProps) {
                   title="恢复默认"
                 >
                   默认
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Local storage path — current mode only, not customizable yet. */}
+          {effectiveMode === 'local' && (
+            <div className="space-y-2.5">
+              <div>
+                <p className="text-sm font-medium text-text">本地存储位置</p>
+                <p className="text-xs text-text-secondary mt-0.5">
+                  当前文件与数据库保存目录
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <div className="flex-1 min-w-0 px-3 py-2 text-xs border border-border rounded-md bg-surface-alt/40 text-text-secondary truncate">
+                  {localPath ?? '加载中…'}
+                </div>
+                <button
+                  onClick={handleOpenFolder}
+                  disabled={!localPath}
+                  className="flex items-center gap-1 px-3 py-2 text-xs text-text-secondary border border-border rounded-md hover:bg-surface-alt transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="打开文件夹"
+                >
+                  <FolderOpen className="w-3.5 h-3.5" />
+                  打开
                 </button>
               </div>
             </div>

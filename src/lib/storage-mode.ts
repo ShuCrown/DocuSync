@@ -14,6 +14,9 @@
 // caches and re-fetch history from the new data source.
 
 import { isTauri } from '../utils/tauri'
+import { appDataDir, join } from '@tauri-apps/api/path'
+import { open } from '@tauri-apps/plugin-shell'
+import { exists, mkdir } from '@tauri-apps/plugin-fs'
 
 export type StorageMode = 'local' | 'remote'
 
@@ -95,4 +98,22 @@ export function resetRemoteApiBase(): void {
 export function subscribe(listener: Listener): () => void {
   listeners.add(listener)
   return () => listeners.delete(listener)
+}
+
+// ---------------------------------------------------------------------------
+// Local storage path helpers (Tauri only)
+// ---------------------------------------------------------------------------
+
+/** Root directory where local files and the SQLite database live. */
+export async function getLocalStorageRoot(): Promise<string> {
+  return join(await appDataDir(), 'docusync')
+}
+
+/** Ensure the local storage root exists and open it in the system file manager. */
+export async function openLocalStorageFolder(): Promise<void> {
+  const root = await getLocalStorageRoot()
+  if (!(await exists(root))) {
+    await mkdir(root, { recursive: true })
+  }
+  await open(root)
 }

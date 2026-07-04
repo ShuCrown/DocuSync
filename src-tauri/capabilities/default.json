@@ -16,11 +16,17 @@
     "sql:allow-close",
     {
       "identifier": "fs:allow-exists",
-      "allow": [{ "path": "$APPDATA/docusync/**" }]
+      "allow": [
+        { "path": "$APPDATA/docusync" },
+        { "path": "$APPDATA/docusync/**" }
+      ]
     },
     {
       "identifier": "fs:allow-mkdir",
-      "allow": [{ "path": "$APPDATA/docusync/**" }]
+      "allow": [
+        { "path": "$APPDATA/docusync" },
+        { "path": "$APPDATA/docusync/**" }
+      ]
     },
     {
       "identifier": "fs:allow-write-file",
