@@ -16,7 +16,6 @@ interface SettingsPanelProps {
   onClose: () => void
 }
 
-// useSyncExternalStore keeps the panel in sync with mode/base changes.
 function useStorageMode() {
   return useSyncExternalStore(
     subscribe,
@@ -53,14 +52,18 @@ interface BodyProps {
   onClose: () => void
 }
 
-// Split into a body component so input state is freshly initialized each time
-// the panel opens (via key remount in the parent), avoiding setState-in-effect.
 function SettingsPanelBody({ mode, remoteBase, onClose }: BodyProps) {
-  const [baseInput, setBaseInput] = useState(remoteBase)
   const [pendingMode, setPendingMode] = useState<StorageMode | null>(null)
+  const [baseInput, setBaseInput] = useState(remoteBase)
+  const [showConfirm, setShowConfirm] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const effectiveMode = pendingMode ?? mode
   const localAvailable = canUseLocalMode()
+
+  const modeChanged = pendingMode !== null && pendingMode !== mode
+  const baseChanged = effectiveMode === 'remote' && baseInput.trim() !== remoteBase
+  const hasChanges = modeChanged || baseChanged
 
   const handleModeChange = (next: StorageMode) => {
     setError(null)
@@ -68,49 +71,71 @@ function SettingsPanelBody({ mode, remoteBase, onClose }: BodyProps) {
       setError('本地模式仅在桌面应用中可用，浏览器无法访问本地文件系统')
       return
     }
-    if (next === mode) return
-    // Defer until confirm — switching wipes the current view (history lives
-    // in a different data source), so we ask the user first.
+    if (next === effectiveMode) return
     setPendingMode(next)
-  }
-
-  const confirmSwitch = () => {
-    if (!pendingMode) return
-    try {
-      setStorageMode(pendingMode)
-      // Reload to flush in-memory cache (api.ts cache + history hook state)
-      // and re-fetch from the new data source. Cleaner than manually
-      // invalidating every cache layer.
-      window.location.reload()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '切换失败')
-      setPendingMode(null)
-    }
-  }
-
-  const cancelSwitch = () => {
-    setPendingMode(null)
-  }
-
-  const handleSaveBase = () => {
-    const trimmed = baseInput.trim()
-    if (trimmed && !/^https?:\/\//.test(trimmed)) {
-      setError('远端地址需以 http:// 或 https:// 开头')
-      return
-    }
-    setError(null)
-    const finalBase = trimmed || 'https://docusync.pages.dev/api'
-    if (finalBase === remoteBase) return
-    setRemoteApiBase(finalBase)
-    // Reload so api.ts re-reads BASE on next import — the module-level const
-    // is evaluated once at load time.
-    window.location.reload()
+    setShowConfirm(false)
   }
 
   const handleResetBase = () => {
-    resetRemoteApiBase()
     setBaseInput('https://docusync.pages.dev/api')
-    window.location.reload()
+    setShowConfirm(false)
+  }
+
+  const handleSave = () => {
+    setError(null)
+    if (!hasChanges) {
+      onClose()
+      return
+    }
+
+    if (baseChanged) {
+      const trimmed = baseInput.trim()
+      if (trimmed && !/^https?:\/\//.test(trimmed)) {
+        setError('远端地址需以 http:// 或 https:// 开头')
+        return
+      }
+    }
+
+    setShowConfirm(true)
+  }
+
+  const handleConfirm = () => {
+    setError(null)
+
+    try {
+      if (modeChanged && pendingMode) {
+        setStorageMode(pendingMode)
+      }
+
+      if (baseChanged) {
+        const finalBase = baseInput.trim() || 'https://docusync.pages.dev/api'
+        if (finalBase === 'https://docusync.pages.dev/api') {
+          resetRemoteApiBase()
+        } else {
+          setRemoteApiBase(finalBase)
+        }
+      }
+
+      // Reload so api.ts re-reads storage mode / BASE on next import.
+      window.location.reload()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存失败')
+      setShowConfirm(false)
+    }
+  }
+
+  const handleCancelConfirm = () => {
+    setShowConfirm(false)
+  }
+
+  const confirmDescription = () => {
+    if (modeChanged && baseChanged) {
+      return `切换到「${pendingMode === 'local' ? '本地存储' : '云端存储'}」并更新远端服务地址，页面将重新加载，当前打开的文档会关闭`
+    }
+    if (modeChanged && pendingMode) {
+      return `切换到「${pendingMode === 'local' ? '本地存储' : '云端存储'}」，页面将重新加载，当前打开的文档会关闭`
+    }
+    return '远端服务地址已修改，页面将重新加载以生效'
   }
 
   return (
@@ -119,11 +144,11 @@ function SettingsPanelBody({ mode, remoteBase, onClose }: BodyProps) {
       onClick={onClose}
     >
       <div
-        className="bg-surface-card border border-border rounded-lg shadow-[0_8px_32px_rgba(0,0,0,0.12)] w-full max-w-md mx-4 overflow-hidden"
+        className="bg-surface-card border border-border rounded-lg shadow-[0_8px_32px_rgba(0,0,0,0.12)] w-full max-w-md mx-4 overflow-hidden flex flex-col max-h-[80vh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
           <div className="flex items-center gap-2">
             <Settings className="w-4.5 h-4.5 text-primary" />
             <span className="text-sm font-medium text-text">设置</span>
@@ -137,7 +162,7 @@ function SettingsPanelBody({ mode, remoteBase, onClose }: BodyProps) {
         </div>
 
         {/* Content */}
-        <div className="p-5 space-y-5">
+        <div className="p-5 space-y-5 overflow-y-auto">
           {error && (
             <div className="flex items-start gap-2 p-3 bg-error/5 border border-error/10 rounded-md text-sm text-error">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -160,19 +185,19 @@ function SettingsPanelBody({ mode, remoteBase, onClose }: BodyProps) {
                 onClick={() => handleModeChange('local')}
                 disabled={!localAvailable}
                 className={`w-full flex items-start gap-3 p-3 rounded-md border transition-colors text-left ${
-                  mode === 'local'
+                  effectiveMode === 'local'
                     ? 'border-primary bg-primary/5'
                     : 'border-border hover:bg-surface-alt/50'
                 } ${!localAvailable ? 'opacity-40 cursor-not-allowed' : ''}`}
               >
-                <HardDrive className={`w-4 h-4 shrink-0 mt-0.5 ${mode === 'local' ? 'text-primary' : 'text-text-secondary'}`} />
+                <HardDrive className={`w-4 h-4 shrink-0 mt-0.5 ${effectiveMode === 'local' ? 'text-primary' : 'text-text-secondary'}`} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-text">本地存储</span>
-                    {mode === 'local' && <Check className="w-3.5 h-3.5 text-primary" />}
+                    {effectiveMode === 'local' && <Check className="w-3.5 h-3.5 text-primary" />}
                   </div>
                   <p className="text-xs text-text-secondary mt-0.5">
-                    文件保存在本机磁盘，完全离线可用（AI 摘要仍需联网）
+                    文件保存在本机磁盘，离线可用
                   </p>
                   {!localAvailable && (
                     <p className="text-[11px] text-text-secondary mt-1">
@@ -186,16 +211,16 @@ function SettingsPanelBody({ mode, remoteBase, onClose }: BodyProps) {
               <button
                 onClick={() => handleModeChange('remote')}
                 className={`w-full flex items-start gap-3 p-3 rounded-md border transition-colors text-left ${
-                  mode === 'remote'
+                  effectiveMode === 'remote'
                     ? 'border-primary bg-primary/5'
                     : 'border-border hover:bg-surface-alt/50'
                 }`}
               >
-                <Cloud className={`w-4 h-4 shrink-0 mt-0.5 ${mode === 'remote' ? 'text-primary' : 'text-text-secondary'}`} />
+                <Cloud className={`w-4 h-4 shrink-0 mt-0.5 ${effectiveMode === 'remote' ? 'text-primary' : 'text-text-secondary'}`} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-text">云端存储</span>
-                    {mode === 'remote' && <Check className="w-3.5 h-3.5 text-primary" />}
+                    {effectiveMode === 'remote' && <Check className="w-3.5 h-3.5 text-primary" />}
                   </div>
                   <p className="text-xs text-text-secondary mt-0.5">
                     文件存于 Cloudflare，跨设备同步，支持分享与账号绑定
@@ -203,79 +228,102 @@ function SettingsPanelBody({ mode, remoteBase, onClose }: BodyProps) {
                 </div>
               </button>
             </div>
+          </div>
 
-            {/* Confirm switch */}
-            {pendingMode && (
-              <div className="flex items-center gap-2 p-3 bg-primary/5 border border-primary/20 rounded-md">
-                <RotateCw className="w-3.5 h-3.5 text-primary shrink-0" />
-                <span className="text-xs text-text flex-1">
-                  切换到「{pendingMode === 'local' ? '本地存储' : '云端存储'}」将重新加载页面，当前打开的文档会关闭
-                </span>
+          {/* Remote API base — only shown in remote mode. */}
+          {effectiveMode === 'remote' && (
+            <div className="space-y-2.5">
+              <div>
+                <p className="text-sm font-medium text-text">远端服务地址</p>
+                <p className="text-xs text-text-secondary mt-0.5">
+                  云端模式的数据接口地址
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={baseInput}
+                  onChange={(e) => {
+                    setBaseInput(e.target.value)
+                    setShowConfirm(false)
+                  }}
+                  placeholder="https://your-worker.example.com/api"
+                  className="flex-1 px-3 py-2 text-sm border border-border rounded-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-text placeholder:text-text-secondary/50"
+                />
                 <button
-                  onClick={cancelSwitch}
-                  className="px-2 py-1 text-[11px] text-text-secondary border border-border rounded hover:bg-surface-alt transition-colors"
+                  onClick={handleResetBase}
+                  className="px-3 py-2 text-xs text-text-secondary border border-border rounded-md hover:bg-surface-alt transition-colors"
+                  title="恢复默认"
                 >
-                  取消
-                </button>
-                <button
-                  onClick={confirmSwitch}
-                  className="px-2 py-1 text-[11px] text-white bg-primary rounded hover:bg-primary-dark transition-colors"
-                >
-                  确认
+                  默认
                 </button>
               </div>
-            )}
-          </div>
-
-          {/* Remote API base — only relevant when calling the Worker.
-              Shown in both modes: remote mode uses it for everything,
-              local mode uses it for AI summarization. */}
-          <div className="space-y-2.5">
-            <div>
-              <p className="text-sm font-medium text-text">远端服务地址</p>
-              <p className="text-xs text-text-secondary mt-0.5">
-                {mode === 'local'
-                  ? '本地模式下用于 AI 摘要生成'
-                  : '云端模式的数据接口地址'}
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={baseInput}
-                onChange={(e) => setBaseInput(e.target.value)}
-                placeholder="https://your-worker.example.com/api"
-                className="flex-1 px-3 py-2 text-sm border border-border rounded-md bg-surface focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-text placeholder:text-text-secondary/50"
-              />
-              <button
-                onClick={handleResetBase}
-                className="px-3 py-2 text-xs text-text-secondary border border-border rounded-md hover:bg-surface-alt transition-colors"
-                title="恢复默认"
-              >
-                默认
-              </button>
-              <button
-                onClick={handleSaveBase}
-                disabled={baseInput.trim() === remoteBase}
-                className="px-3 py-2 text-xs text-white bg-primary rounded-md hover:bg-primary-dark disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                保存
-              </button>
-            </div>
-          </div>
-
-          {/* Mode-specific hint */}
-          {mode === 'local' && (
-            <div className="text-xs text-text-secondary p-3 bg-surface-alt/40 rounded-md">
-              本地模式下：账号绑定、文档分享功能不可用。AI 摘要需联网调用远端 Worker。
             </div>
           )}
-          {mode === 'remote' && (
+
+          {/* Mode-specific hint */}
+          {effectiveMode === 'local' && (
+            <div className="text-xs text-text-secondary p-3 bg-surface-alt/40 rounded-md">
+              本地模式下：账号绑定、文档分享功能不可用。
+            </div>
+          )}
+          {effectiveMode === 'remote' && (
             <div className="text-xs text-text-secondary p-3 bg-surface-alt/40 rounded-md">
               云端模式下：所有功能可用，数据存于 Cloudflare R2 + D1。
             </div>
           )}
         </div>
+
+        {/* Footer actions */}
+        <div className="px-5 py-4 border-t border-border shrink-0 flex gap-3">
+          <button
+            onClick={onClose}
+            className="flex-1 px-3 py-2 text-sm text-text-secondary border border-border rounded-md hover:bg-surface-alt transition-colors"
+          >
+            关闭
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!hasChanges}
+            className="flex-1 px-3 py-2 text-sm font-medium text-white bg-primary rounded-md hover:bg-primary-dark disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            保存
+          </button>
+        </div>
+
+        {/* Secondary confirmation — only shown when there are unsaved changes. */}
+        {showConfirm && (
+          <div
+            className="absolute inset-0 z-10 flex items-center justify-center bg-black/20 backdrop-blur-[2px]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="bg-surface-card border border-border rounded-lg shadow-[0_8px_32px_rgba(0,0,0,0.12)] w-full max-w-sm mx-4 p-4 space-y-4">
+              <div className="flex items-start gap-3">
+                <RotateCw className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-text">确认保存修改？</p>
+                  <p className="text-xs text-text-secondary mt-1">
+                    {confirmDescription()}
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={handleCancelConfirm}
+                  className="flex-1 px-3 py-2 text-sm text-text-secondary border border-border rounded-md hover:bg-surface-alt transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleConfirm}
+                  className="flex-1 px-3 py-2 text-sm font-medium text-white bg-primary rounded-md hover:bg-primary-dark transition-colors"
+                >
+                  确认
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
