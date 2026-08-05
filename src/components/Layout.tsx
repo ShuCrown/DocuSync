@@ -1,4 +1,4 @@
-import { FileText, Clock, X, User, Columns2 } from 'lucide-react'
+import { FileText, Clock, X, User, Columns2, Settings } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { getCategoryLabel } from '../utils/fileType'
 import { formatTime } from '../utils/formatTime'
@@ -13,6 +13,7 @@ interface LayoutProps {
   onHistoryClear?: () => void
   email?: string | null
   onAccountOpen?: () => void
+  onSettingsOpen?: () => void
   // Split view props
   splitMode?: 'single' | 'split'
   onSplitToggle?: () => void
@@ -31,6 +32,7 @@ export function Layout({
   onHistoryClear,
   email,
   onAccountOpen,
+  onSettingsOpen,
   splitMode,
   onSplitToggle,
   splitButtonRef,
@@ -184,6 +186,17 @@ export function Layout({
                   title={email ? `已绑定: ${email}` : '账户管理'}
                 >
                   <User className="w-4.5 h-4.5" />
+                </button>
+              )}
+
+              {/* Settings button */}
+              {onSettingsOpen && (
+                <button
+                  onClick={onSettingsOpen}
+                  className="p-2 rounded-md text-text-secondary hover:text-text hover:bg-surface-alt/60 transition-colors"
+                  title="设置"
+                >
+                  <Settings className="w-4.5 h-4.5" />
                 </button>
               )}
             </div>

@@ -5,6 +5,7 @@ import { FileUpload } from './components/FileUpload'
 import { FileHistory } from './components/FileHistory'
 import { DocumentViewer } from './components/DocumentViewer'
 import { AccountPanel } from './components/AccountPanel'
+import { SettingsPanel } from './components/SettingsPanel'
 import { SelectionToolbar } from './components/SelectionToolbar'
 import { SplitPane } from './components/SplitPane'
 import { PaneHeader } from './components/PaneHeader'
@@ -19,6 +20,7 @@ import { useAccount } from './hooks/useAccount'
 import { useSplitView } from './hooks/useSplitView'
 import { useScrollPosition, findScrollable } from './hooks/useScrollPosition'
 import { getFileCategory, isSupported } from './utils/fileType'
+import { getStorageMode } from './lib/storage-mode'
 import * as api from './lib/api'
 import type { FileRecord } from './hooks/useFileHistory'
 import type { UploadedFile } from './hooks/useFileUpload'
@@ -36,11 +38,13 @@ export default function App() {
   } = useSplitView()
   const paneBRef = useRef(paneB)
   const [accountOpen, setAccountOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [shareDoc, setShareDoc] = useState<{ id: string; name: string } | null>(null)
   const splitButtonRef = useRef<HTMLElement | null>(null)
   const singleScrollRef = useRef<HTMLDivElement | null>(null)
   const initialPaneAPos = useRef<{ x: number; y: number } | null>(null)
   const [pendingDuplicate, setPendingDuplicate] = useState<File | null>(null)
+  const localMode = getStorageMode() === 'local'
 
   useEffect(() => {
     paneBRef.current = paneB
@@ -133,6 +137,14 @@ export default function App() {
     setAccountOpen(false)
   }, [])
 
+  const handleSettingsOpen = useCallback(() => {
+    setSettingsOpen(true)
+  }, [])
+
+  const handleSettingsClose = useCallback(() => {
+    setSettingsOpen(false)
+  }, [])
+
   const handleShareOpen = useCallback((docId: string, docName: string) => {
     setShareDoc({ id: docId, name: docName })
   }, [])
@@ -203,7 +215,7 @@ export default function App() {
         isActive={activePane === 'a'}
         onClose={handlePaneAClose}
         onFocus={handlePaneFocus}
-        onShare={paneA?.docId ? () => handleShareOpen(paneA.docId!, paneA.file.name) : undefined}
+        onShare={!localMode && paneA?.docId ? () => handleShareOpen(paneA.docId!, paneA.file.name) : undefined}
       />
       <div ref={paneAScrollRef} className="flex-1 overflow-auto">
         <DocumentViewer
@@ -212,7 +224,7 @@ export default function App() {
         />
       </div>
     </div>
-  ), [paneA, activePane, handlePaneAClose, handlePaneFocus, paneAScrollRef, handleShareOpen])
+  ), [paneA, activePane, handlePaneAClose, handlePaneFocus, paneAScrollRef, handleShareOpen, localMode])
 
   const paneBElement = useMemo(() => (
     <div className="h-full flex flex-col">
@@ -223,7 +235,7 @@ export default function App() {
         onClose={handlePaneBClose}
         onReplace={handleReplacePaneB}
         onFocus={handlePaneFocus}
-        onShare={paneB?.docId ? () => handleShareOpen(paneB.docId!, paneB.file.name) : undefined}
+        onShare={!localMode && paneB?.docId ? () => handleShareOpen(paneB.docId!, paneB.file.name) : undefined}
       />
       <div ref={paneBScrollRef} className="flex-1 overflow-auto">
         <DocumentViewer
@@ -232,7 +244,7 @@ export default function App() {
         />
       </div>
     </div>
-  ), [paneB, activePane, handlePaneBClose, handleReplacePaneB, handlePaneFocus, paneBScrollRef, handleShareOpen])
+  ), [paneB, activePane, handlePaneBClose, handleReplacePaneB, handlePaneFocus, paneBScrollRef, handleShareOpen, localMode])
 
   // Picker view for pane B when no file is selected (same layout as home page)
   const handlePickerFile = useCallback(async (file: File) => {
@@ -341,7 +353,7 @@ export default function App() {
             fileName={singleFile!.file.name}
             docId={singleFile?.docId}
             onClose={handleClear}
-            onShare={singleFile?.docId ? () => handleShareOpen(singleFile.docId!, singleFile.file.name) : undefined}
+            onShare={!localMode && singleFile?.docId ? () => handleShareOpen(singleFile.docId!, singleFile.file.name) : undefined}
           />
           <div ref={handleSingleScrollRef} className="flex-1 overflow-auto">
             <DocumentViewer
@@ -365,7 +377,8 @@ export default function App() {
           onHistoryRemove={removeHistory}
           onHistoryClear={clearHistory}
           email={account.email}
-          onAccountOpen={handleAccountOpen}
+          onAccountOpen={localMode ? undefined : handleAccountOpen}
+          onSettingsOpen={handleSettingsOpen}
           splitMode={splitMode}
           onSplitToggle={handleSplitToggle}
           splitButtonRef={splitButtonRef}
@@ -419,6 +432,11 @@ export default function App() {
             onSendRecoverCode={account.sendRecoverCode}
             onRecover={account.recoverAccount}
             onUnbind={account.unbindEmail}
+          />
+
+          <SettingsPanel
+            open={settingsOpen}
+            onClose={handleSettingsClose}
           />
 
           {shareDoc && (
