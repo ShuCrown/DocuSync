@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegram/nicegram-tauri/dev/crates/tauri-utils/schema.json",
   "productName": "DocuSync",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "identifier": "com.docusync.app",
   "build": {
     "frontendDist": "../dist",
