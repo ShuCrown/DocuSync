@@ -112,22 +112,48 @@ export async function registerDevice() {
 // ---------------------------------------------------------------------------
 
 export async function uploadDocument(file: File, extractedText?: string) {
-  const db = await getDb()
+  let db: Database
+  try {
+    db = await getDb()
+  } catch (err) {
+    throw new Error(`数据库初始化失败: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
   const deviceId = getDeviceId()
   const docId = generateId(21)
   const ext = file.name.split('.').pop() || 'bin'
   const relPath = buildRelPath(deviceId, docId, ext)
 
-  await ensureDirFor(relPath)
+  try {
+    await ensureDirFor(relPath)
+  } catch (err) {
+    throw new Error(`创建目录失败: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
   const abs = await resolveAbs(relPath)
-  const bytes = new Uint8Array(await file.arrayBuffer())
-  await writeFile(abs, bytes)
+
+  let bytes: Uint8Array
+  try {
+    bytes = new Uint8Array(await file.arrayBuffer())
+  } catch (err) {
+    throw new Error(`读取文件内容失败: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  try {
+    await writeFile(abs, bytes)
+  } catch (err) {
+    throw new Error(`写入文件失败: ${err instanceof Error ? err.message : String(err)}`)
+  }
 
   const category = detectCategory(file.name)
-  await db.execute(
-    'INSERT INTO documents (id, device_id, name, size, category, r2_key, extracted_text) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [docId, deviceId, file.name, file.size, category, relPath, extractedText ?? null],
-  )
+  try {
+    await db.execute(
+      'INSERT INTO documents (id, device_id, name, size, category, r2_key, extracted_text) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [docId, deviceId, file.name, file.size, category, relPath, extractedText ?? null],
+    )
+  } catch (err) {
+    throw new Error(`保存文档记录失败: ${err instanceof Error ? err.message : String(err)}`)
+  }
 
   return { id: docId, name: file.name, size: file.size, category, r2Key: relPath }
 }
