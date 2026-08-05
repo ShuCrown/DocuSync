@@ -11,7 +11,7 @@
 
 import Database from '@tauri-apps/plugin-sql'
 import { writeFile, readFile, remove, exists, mkdir } from '@tauri-apps/plugin-fs'
-import { appDataDir, join } from '@tauri-apps/api/path'
+import { appDataDir, join, dirname } from '@tauri-apps/api/path'
 import { getDeviceId } from './device-id'
 import { getRemoteApiBase } from './storage-mode'
 import { LOCAL_DB_NAME, LOCAL_SCHEMA_SQL } from './local-schema'
@@ -75,7 +75,10 @@ function buildRelPath(deviceId: string, docId: string, ext: string): string {
 
 async function ensureDirFor(relPath: string): Promise<void> {
   const abs = await resolveAbs(relPath)
-  const dir = abs.substring(0, abs.lastIndexOf('/'))
+  // Use dirname() instead of string slicing: on Windows, join() produces
+  // backslash paths and lastIndexOf('/') returns -1, yielding an empty dir
+  // that mkdir rejects with "forbidden path:".
+  const dir = await dirname(abs)
   if (!(await exists(dir))) {
     await mkdir(dir, { recursive: true })
   }
