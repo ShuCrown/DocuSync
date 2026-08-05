@@ -41,7 +41,7 @@ interface Pos {
 
 // --- Component ---
 
-export function SelectionToolbar() {
+export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, title: string) => void }) {
   const { services, enabledServices, addService, removeService, moveService, toggleService, updateService, resetToDefaults } = useAIServices()
   const [text, setText] = useState('')
   const [pos, setPos] = useState<Pos | null>(null)
@@ -111,13 +111,18 @@ export function SelectionToolbar() {
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
 
-    // Open popup for AI Q&A
-    const w = 900, h = 700
-    window.open(
-      service.url,
-      `ai-${service.id}`,
-      `width=${w},height=${h},left=${Math.round((screen.width - w) / 2)},top=${Math.round((screen.height - h) / 2)},scrollbars=yes,resizable=yes`,
-    )
+    // Open the inline chat panel (split / floating). Falls back to a popup
+    // window only when no openChat handler is wired up.
+    if (onOpenChat) {
+      onOpenChat(service.url, service.name)
+    } else {
+      const w = 900, h = 700
+      window.open(
+        service.url,
+        `ai-${service.id}`,
+        `width=${w},height=${h},left=${Math.round((screen.width - w) / 2)},top=${Math.round((screen.height - h) / 2)},scrollbars=yes,resizable=yes`,
+      )
+    }
 
     window.getSelection()?.removeAllRanges()
     setPos(null)
@@ -133,7 +138,7 @@ export function SelectionToolbar() {
         style={{ top: pos.top, left: pos.left, transform: 'translate(-50%, -100%)' }}
         onMouseDown={(e) => e.preventDefault()}
       >
-        <div className="flex items-center gap-1 px-2 py-1.5 bg-surface-card rounded-lg shadow-[0_2px_12px_rgba(44,40,37,0.12)] border border-border">
+        <div className="flex items-center gap-1 px-2 py-1.5 bg-surface-card rounded-lg shadow-[0_2px_12px_rgba(44,40,37,0.12)] border border-border/60">
           {enabledServices.map((s) => (
             <button
               key={s.id}
@@ -170,7 +175,7 @@ export function SelectionToolbar() {
         </div>
 
         <div className="flex justify-center">
-          <div className="w-2 h-2 bg-surface-card border-r border-b border-border rotate-45 -mt-1" />
+          <div className="w-2 h-2 bg-surface-card border-r border-b border-border/60 rotate-45 -mt-1" />
         </div>
       </div>
 

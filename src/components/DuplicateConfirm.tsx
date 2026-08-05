@@ -10,7 +10,7 @@ export function DuplicateConfirm({ fileName, onConfirm, onCancel }: DuplicateCon
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onCancel} />
-      <div className="relative w-full max-w-sm bg-surface-card rounded-xl border border-border shadow-[0_8px_30px_rgba(0,0,0,0.12)] overflow-hidden">
+      <div className="relative w-full max-w-sm bg-surface-card rounded-xl border border-border/60 shadow-[0_8px_30px_rgba(0,0,0,0.12)] overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface-alt/50">
           <div className="flex items-center gap-2">

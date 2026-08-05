@@ -11,6 +11,8 @@ import { PaneHeader } from './components/PaneHeader'
 import { SimplePaneHeader } from './components/SimplePaneHeader'
 import { DuplicateConfirm } from './components/DuplicateConfirm'
 import { ShareDialog } from './components/ShareDialog'
+import { ChatPanelContainer } from './components/ChatPanelContainer'
+import { ChatPanel, ChatRestoreBubble } from './components/ChatPanel'
 import { useFileUpload } from './hooks/useFileUpload'
 import { useFileHistory } from './hooks/useFileHistory'
 import { useAccount } from './hooks/useAccount'
@@ -272,7 +274,7 @@ export default function App() {
 
   const paneBPickerElement = useMemo(() => (
     <div className="h-full flex flex-col">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-surface-alt/40 shrink-0">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border/40 bg-surface-alt/40 shrink-0">
         <span className="text-xs font-medium text-text-secondary">选择对比文档</span>
         <button
           onClick={handlePaneBClose}
@@ -301,22 +303,13 @@ export default function App() {
     </div>
   ), [handlePickerFile, history, handlePickerHistorySelect, removeHistory, clearHistory, handlePaneBClose])
 
-  return (
-    <Layout
-      currentFileName={paneA?.file.name ?? uploadedFile?.file.name ?? null}
-      onBack={handleClear}
-      history={history}
-      onHistorySelect={handleHistorySelect}
-      onHistoryRemove={removeHistory}
-      onHistoryClear={clearHistory}
-      email={account.email}
-      onAccountOpen={handleAccountOpen}
-      splitMode={splitMode}
-      onSplitToggle={handleSplitToggle}
-      splitButtonRef={splitButtonRef}
-    >
+  // Main content (home / split-comparison / single document) — wrapped in a
+  // split row when the chat panel is docked so the document pane shrinks to
+  // make room for it.
+  const mainContent = (
+    <>
       {!paneA && !uploadedFile ? (
-        <div className="flex-1 flex items-start justify-center px-4 sm:px-6 py-12">
+        <div className="flex-1 flex items-start justify-center px-4 sm:px-6 py-8">
           <div className="w-full max-w-2xl">
             <FileUpload
               onFile={handleFileWithHistory}
@@ -358,63 +351,98 @@ export default function App() {
           </div>
         </div>
       )}
+    </>
+  )
 
-      {/* Download loading overlay */}
-      {downloading && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-          <div className="bg-surface-card rounded-xl p-6 shadow-xl flex flex-col items-center gap-3 min-w-[240px]">
-            <Loader2 className="w-8 h-8 text-primary animate-spin" />
-            <div className="text-sm text-text font-medium">加载中</div>
-            {downloadProgress !== null && (
-              <div className="w-full">
-                <div className="h-1.5 bg-surface-alt rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-primary rounded-full"
-                    style={{ width: `${downloadProgress}%` }}
-                  />
-                </div>
-                <div className="text-xs text-text-secondary text-center mt-1">
-                  {downloadProgress}%
-                </div>
+  return (
+    <ChatPanelContainer>
+      {(openChat, panel) => (
+        <Layout
+          currentFileName={paneA?.file.name ?? uploadedFile?.file.name ?? null}
+          onBack={handleClear}
+          history={history}
+          onHistorySelect={handleHistorySelect}
+          onHistoryRemove={removeHistory}
+          onHistoryClear={clearHistory}
+          email={account.email}
+          onAccountOpen={handleAccountOpen}
+          splitMode={splitMode}
+          onSplitToggle={handleSplitToggle}
+          splitButtonRef={splitButtonRef}
+          chatSplitWidth={panel.mode === 'split' ? panel.splitWidth + 12 : undefined}
+        >
+          {mainContent}
+
+          {/* Single ChatPanel instance — always mounted when not closed.
+              Uses fixed positioning for all modes; split mode reserves space
+              via marginRight on the main content above. */}
+          {panel.mode !== 'closed' && (
+            <ChatPanel panel={panel} />
+          )}
+
+          {/* Collapsed — restore bubble */}
+          {panel.mode === 'collapsed' && (
+            <ChatRestoreBubble onClick={panel.restore} />
+          )}
+
+          {/* Download loading overlay */}
+          {downloading && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+              <div className="bg-surface-card rounded-xl p-6 shadow-xl flex flex-col items-center gap-3 min-w-[240px]">
+                <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                <div className="text-sm text-text font-medium">加载中</div>
+                {downloadProgress !== null && (
+                  <div className="w-full">
+                    <div className="h-1.5 bg-surface-alt rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary rounded-full"
+                        style={{ width: `${downloadProgress}%` }}
+                      />
+                    </div>
+                    <div className="text-xs text-text-secondary text-center mt-1">
+                      {downloadProgress}%
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        </div>
+            </div>
+          )}
+
+          <AccountPanel
+            open={accountOpen}
+            onClose={handleAccountClose}
+            email={account.email}
+            loading={account.loading}
+            error={account.error}
+            onBind={account.bindEmail}
+            onVerify={account.verifyBind}
+            onSendRecoverCode={account.sendRecoverCode}
+            onRecover={account.recoverAccount}
+            onUnbind={account.unbindEmail}
+          />
+
+          {shareDoc && (
+            <ShareDialog
+              open={!!shareDoc}
+              onClose={handleShareClose}
+              docId={shareDoc.id}
+              fileName={shareDoc.name}
+            />
+          )}
+
+          {/* Selection toolbar for AI Q&A */}
+          {activeFile && <SelectionToolbar onOpenChat={openChat} />}
+
+          {/* Duplicate file confirmation */}
+          {pendingDuplicate && (
+            <DuplicateConfirm
+              fileName={pendingDuplicate.name}
+              onConfirm={handleDuplicateConfirm}
+              onCancel={handleDuplicateCancel}
+            />
+          )}
+        </Layout>
       )}
-
-      <AccountPanel
-        open={accountOpen}
-        onClose={handleAccountClose}
-        email={account.email}
-        loading={account.loading}
-        error={account.error}
-        onBind={account.bindEmail}
-        onVerify={account.verifyBind}
-        onSendRecoverCode={account.sendRecoverCode}
-        onRecover={account.recoverAccount}
-        onUnbind={account.unbindEmail}
-      />
-
-      {shareDoc && (
-        <ShareDialog
-          open={!!shareDoc}
-          onClose={handleShareClose}
-          docId={shareDoc.id}
-          fileName={shareDoc.name}
-        />
-      )}
-
-      {/* Selection toolbar for AI Q&A */}
-      {activeFile && <SelectionToolbar />}
-
-      {/* Duplicate file confirmation */}
-      {pendingDuplicate && (
-        <DuplicateConfirm
-          fileName={pendingDuplicate.name}
-          onConfirm={handleDuplicateConfirm}
-          onCancel={handleDuplicateCancel}
-        />
-      )}
-    </Layout>
+    </ChatPanelContainer>
   )
 }
