@@ -2,7 +2,7 @@ name: Tauri Desktop Build & Release
 
 # 每次 push 到 master（源码或构建配置变更）触发：
 #   1. 自动 patch 版本自增（0.0.1 -> 0.0.2 -> 0.0.3 ...）
-#   2. 三平台并行构建（Linux / Windows / macOS）
+#   2. 双平台并行构建（Windows / macOS ARM64）
 #   3. 在 GitHub Releases 页面发布可下载资源
 on:
   push:
@@ -99,9 +99,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: ubuntu-22.04
-            name: Linux x64
-            artifact_name: DocuSync-linux-x64
           - platform: windows-latest
             name: Windows x64
             artifact_name: DocuSync-windows-x64
@@ -113,21 +110,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.bump-version.outputs.tag }}
-
-      - name: Install Linux system dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            build-essential \
-            curl \
-            wget \
-            file \
-            libxdo-dev \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev
 
       - uses: actions/setup-node@v4
         with:
@@ -153,10 +135,6 @@ jobs:
       - name: Build Tauri app
         run: npm run tauri:build
 
-      - name: List build output (Linux)
-        if: runner.os == 'Linux'
-        run: find src-tauri/target/release/bundle -type f 2>/dev/null | sort
-
       - name: List build output (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -165,17 +143,6 @@ jobs:
       - name: List build output (macOS)
         if: runner.os == 'macOS'
         run: find src-tauri/target/release/bundle -type f \( -name "*.dmg" -o -name "*.app" \) 2>/dev/null | sort
-
-      - name: Upload Linux artifacts
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: |
-            src-tauri/target/release/bundle/deb/*.deb
-            src-tauri/target/release/bundle/appimage/*.AppImage
-            src-tauri/target/release/bundle/rpm/*.rpm
-          if-no-files-found: warn
 
       - name: Upload Windows artifacts
         if: runner.os == 'Windows'
@@ -231,6 +198,5 @@ jobs:
             ### 下载资源
             - **Windows**: `.msi` (安装包) / `.exe` (NSIS 安装包)
             - **macOS**: `.dmg` (磁盘镜像，ARM64 Apple Silicon)
-            - **Linux**: `.deb` / `.rpm` / `.AppImage`
           generate_release_notes: true
           files: release-flat/*
