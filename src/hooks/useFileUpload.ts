@@ -37,6 +37,7 @@ export function useFileUpload() {
       const result = await api.uploadDocument(file, extractedText)
       setUploadedFile({ file, category, url, docId: result.id })
     } catch (err) {
+      console.error('文件上传失败:', err)
       URL.revokeObjectURL(url)
       setError(err instanceof Error ? err.message : '上传失败')
     } finally {

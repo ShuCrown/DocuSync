@@ -181,7 +181,8 @@ export default function App() {
       }
       enterSplit(uploadedB)
       addHistory(file, 'unknown')
-    } catch {
+    } catch (err) {
+      console.error('分屏上传失败:', err)
       URL.revokeObjectURL(url)
     }
   }, [paneA, uploadedFile, setPaneA, enterSplit, addHistory, captureSingleScroll])
