@@ -132,6 +132,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Cargo cache restores src-tauri/target, which carries stale bundle/
+      # installers from an earlier release (e.g. a 0.0.2 .exe/.msi). Without
+      # cleaning, the upload glob below publishes those old artifacts into the
+      # new release. Remove the bundle output so only the current version ships.
+      - name: Clean stale bundle artifacts
+        run: rm -rf src-tauri/target/release/bundle
+
       - name: Build Tauri app
         run: npm run tauri:build
 
