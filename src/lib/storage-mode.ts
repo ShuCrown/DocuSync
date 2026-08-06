@@ -15,7 +15,7 @@
 
 import { isTauri } from '../utils/tauri'
 import { appDataDir, join } from '@tauri-apps/api/path'
-import { revealItemInDir } from '@tauri-apps/plugin-opener'
+import { openPath } from '@tauri-apps/plugin-opener'
 import { exists, mkdir } from '@tauri-apps/plugin-fs'
 
 export type StorageMode = 'local' | 'remote'
@@ -115,5 +115,14 @@ export async function openLocalStorageFolder(): Promise<void> {
   if (!(await exists(root))) {
     await mkdir(root, { recursive: true })
   }
-  await revealItemInDir(root)
+  try {
+    // openPath on a directory opens (enters) it in the file manager, which is
+    // what "打开文件夹" means here. revealItemInDir would only select the
+    // folder inside its parent without entering it.
+    await openPath(root)
+  } catch {
+    // Surface the full path so the user can open it manually if the system
+    // call fails (e.g. no default directory handler on this machine).
+    throw new Error(`无法自动打开文件夹，请手动访问：${root}`)
+  }
 }

@@ -335,18 +335,21 @@ function SettingsPanelBody({ mode, remoteBase, onClose }: BodyProps) {
                   当前文件与数据库保存目录
                 </p>
               </div>
-              <div className="flex gap-2">
-                <div className="flex-1 min-w-0 px-3 py-2 text-xs border border-border rounded-md bg-surface-alt/40 text-text-secondary truncate">
+              <div className="space-y-2">
+                <div
+                  className="px-3 py-2 text-xs border border-border rounded-md bg-surface-alt/40 text-text-secondary break-all select-text"
+                  title={localPath ?? ''}
+                >
                   {localPath ?? '加载中…'}
                 </div>
                 <button
                   onClick={handleOpenFolder}
                   disabled={!localPath}
-                  className="flex items-center gap-1 px-3 py-2 text-xs text-text-secondary border border-border rounded-md hover:bg-surface-alt transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs text-text-secondary border border-border rounded-md hover:bg-surface-alt transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   title="打开文件夹"
                 >
                   <FolderOpen className="w-3.5 h-3.5" />
-                  打开
+                  打开文件夹
                 </button>
               </div>
             </div>
