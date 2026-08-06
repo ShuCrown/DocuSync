@@ -136,7 +136,10 @@ jobs:
       # installers from an earlier release (e.g. a 0.0.2 .exe/.msi). Without
       # cleaning, the upload glob below publishes those old artifacts into the
       # new release. Remove the bundle output so only the current version ships.
+      # shell: bash is required — the Windows runner defaults to pwsh, where
+      # `rm -rf` is invalid and would fail this step.
       - name: Clean stale bundle artifacts
+        shell: bash
         run: rm -rf src-tauri/target/release/bundle
 
       - name: Build Tauri app
