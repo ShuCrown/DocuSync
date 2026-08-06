@@ -37,15 +37,20 @@ struct AiChatWebview(std::sync::Mutex<Option<Webview<Wry>>>);
 /// us, so we must NOT add a frame offset or flip `y` here — doing so corrects
 /// the coordinate a second time and pushes the webview off its placeholder,
 /// over the chat header.
+fn transform_bounds(bounds: Bounds) -> (LogicalPosition<f64>, LogicalSize<f64>) {
+    // bounds.y already locates the placeholder below the chat header, so do
+    // NOT add any y offset here - it double-counts and makes the child webview
+    // overflow the panel's bottom edge (prior +24/+36 magic-offset bug,
+    // guarded by tests below).
+    (LogicalPosition::new(bounds.x, bounds.y), LogicalSize::new(bounds.width, bounds.height))
+}
+
 fn to_logical(
     window: &tauri::Window,
     bounds: Bounds,
 ) -> Result<(LogicalPosition<f64>, LogicalSize<f64>), String> {
     let sf = window.scale_factor().map_err(|e| e.to_string())?;
-
-    let position = LogicalPosition::new(bounds.x, bounds.y+24.0);
-    let size = LogicalSize::new(bounds.width, bounds.height);
-
+    let (position, size) = transform_bounds(bounds);
     eprintln!("[ai-chat-webview] bounds={bounds:?} sf={sf} position={position:?} size={size:?}");
 
     Ok((position, size))
@@ -144,4 +149,24 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression guard for the magic y-offset bug. `bounds.y` comes from
+    /// `getBoundingClientRect()` on the placeholder that already sits below the
+    /// chat header, so `transform_bounds` must mirror it verbatim. Any added y
+    /// offset double-counts and makes the child webview overflow the panel's
+    /// bottom edge (the +24/+36 values this guards against).
+    #[test]
+    fn position_mirrors_placeholder_without_y_offset() {
+        let bounds = Bounds { x: 1200.0, y: 42.0, width: 420.0, height: 600.0 };
+        let (pos, size) = transform_bounds(bounds);
+        assert_eq!(pos.x, 1200.0);
+        assert_eq!(pos.y, 42.0, "no y offset must be added (was +24/+36)");
+        assert_eq!(size.width, 420.0);
+        assert_eq!(size.height, 600.0);
+    }
 }

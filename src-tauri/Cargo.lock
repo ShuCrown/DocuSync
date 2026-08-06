@@ -915,7 +915,7 @@ dependencies = [
 
 [[package]]
 name = "docusync-tauri"
-version = "0.0.12"
+version = "0.0.14"
 dependencies = [
  "serde",
  "serde_json",
