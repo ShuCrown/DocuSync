@@ -52,6 +52,8 @@ function normalizeDocxImageSvgs(container: HTMLElement, onImageClick?: (src: str
 export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: OfficeViewerProps) {
   const [tableData, setTableData] = useState<string[][][]>([])
   const [sheetNames, setSheetNames] = useState<string[]>([])
+  const [sheetMerges, setSheetMerges] = useState<{ s: { r: number; c: number }; e: { r: number; c: number } }[][]>([])
+  const [activeSheet, setActiveSheet] = useState(0)
   const [pptHtml, setPptHtml] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -147,12 +149,15 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
           const workbook = XLSX.read(buffer, { type: 'array' })
           const names = workbook.SheetNames
           const sheets: string[][][] = []
+          const merges: { s: { r: number; c: number }; e: { r: number; c: number } }[][] = []
           const texts: string[] = []
           for (const name of names) {
             const sheet = workbook.Sheets[name]
             if (sheet) {
               const data = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 })
               sheets.push(data as string[][])
+              // Preserve merge ranges for proper rowspan/colspan rendering
+              merges.push((sheet['!merges'] as { s: { r: number; c: number }; e: { r: number; c: number } }[]) ?? [])
               texts.push(`[${name}]\n${XLSX.utils.sheet_to_csv(sheet)}`)
             }
           }
@@ -160,6 +165,8 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
           if (!cancelled) {
             setSheetNames(names)
             setTableData(sheets)
+            setSheetMerges(merges)
+            setActiveSheet(0)
             textCache.set(documentKey, extractedText)
             latestOnTextExtractedRef.current?.(extractedText)
           }
@@ -238,29 +245,71 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
     )
   }
 
-  // Excel: render tables
+  // Excel: render active sheet with merge-aware rowspan/colspan + bottom tab bar
+  const activeData = tableData[activeSheet] ?? []
+  const activeMerges = sheetMerges[activeSheet] ?? []
+
+  // Build skip-set and merge-info for the active sheet
+  const skipCell = new Set<string>()
+  const mergeInfo = new Map<string, { rowSpan: number; colSpan: number }>()
+  for (const m of activeMerges) {
+    const rowSpan = m.e.r - m.s.r + 1
+    const colSpan = m.e.c - m.s.c + 1
+    mergeInfo.set(`${m.s.r},${m.s.c}`, { rowSpan, colSpan })
+    for (let r = m.s.r; r <= m.e.r; r++) {
+      for (let c = m.s.c; c <= m.e.c; c++) {
+        if (r !== m.s.r || c !== m.s.c) skipCell.add(`${r},${c}`)
+      }
+    }
+  }
+
   return (
-    <div className="p-4 bg-surface-card overflow-auto h-full">
-      {sheetNames.map((name, idx) => (
-        <div key={name} className="mb-6 last:mb-0">
-          <h3 className="text-sm font-medium text-text mb-2 px-2">{name}</h3>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse">
-              <tbody>
-                {(tableData[idx] ?? []).map((row, rowIdx) => (
-                  <tr key={rowIdx} className={rowIdx === 0 ? 'bg-surface-alt font-medium' : ''}>
-                    {row.map((cell, colIdx) => (
-                      <td key={colIdx} className="border border-border px-3 py-1.5 text-text whitespace-nowrap">
+    <div className="flex flex-col h-full bg-surface-card">
+      {/* Table area */}
+      <div className="flex-1 overflow-auto p-4 pb-1">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm border-collapse">
+            <tbody>
+              {activeData.map((row, rowIdx) => (
+                <tr key={rowIdx} className={rowIdx === 0 ? 'bg-surface-alt font-medium' : ''}>
+                  {row.map((cell, colIdx) => {
+                    const key = `${rowIdx},${colIdx}`
+                    if (skipCell.has(key)) return null
+                    const mi = mergeInfo.get(key)
+                    return (
+                      <td
+                        key={colIdx}
+                        className="border border-border px-3 py-1.5 text-text whitespace-nowrap"
+                        rowSpan={mi?.rowSpan}
+                        colSpan={mi?.colSpan}
+                      >
                         {cell ?? ''}
                       </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    )
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      ))}
+      </div>
+
+      {/* Sheet tab bar — anchored at bottom, like native Excel */}
+      <div className="shrink-0 border-t border-border bg-surface-alt/30 px-2 py-1 flex items-center gap-0.5 overflow-x-auto">
+        {sheetNames.map((name, idx) => (
+          <button
+            key={name}
+            onClick={() => setActiveSheet(idx)}
+            className={`shrink-0 px-3 py-1 text-xs rounded-t-md border border-border/50 transition-colors ${
+              idx === activeSheet
+                ? 'bg-surface-card text-text font-medium border-b-surface-card -mb-px'
+                : 'bg-transparent text-text-secondary hover:bg-surface-card/50 border-b-transparent'
+            }`}
+          >
+            {name}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }
