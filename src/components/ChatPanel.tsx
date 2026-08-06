@@ -4,7 +4,6 @@ import {
   PictureInPicture2,
   Minus,
   X,
-  ExternalLink,
   MessageSquare,
 } from 'lucide-react'
 import { type ChatPanelState, CHAT_PANEL_SPLIT_MIN, CHAT_PANEL_SPLIT_MAX } from '../hooks/useChatPanel'
@@ -90,18 +89,6 @@ export function ChatPanel({ panel }: ChatPanelProps) {
         >
           {isFloating ? <Columns2 className="w-3.5 h-3.5" /> : <PictureInPicture2 className="w-3.5 h-3.5" />}
         </button>
-
-        {/* Open in new tab */}
-        {panel.currentUrl && (
-          <button
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={() => window.open(panel.currentUrl!, '_blank', 'noopener,noreferrer')}
-            className="p-1 rounded text-text-secondary hover:text-primary hover:bg-surface-alt transition-colors"
-            title="在新标签页打开"
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-          </button>
-        )}
 
         {/* Collapse — hide panel, show restore bubble */}
         <button
