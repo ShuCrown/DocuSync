@@ -53,9 +53,12 @@ export function ChatPanel({ panel }: ChatPanelProps) {
   //
   // All four corners stay rounded (rounded-xl). The chat body is a native
   // Tauri child webview - an opaque rectangle that CSS `overflow-hidden`
-  // cannot clip - so useTauriChatWebview.ts insets the webview bounds
-  // (WEBVIEW_INSET) to keep its sharp corners inside the rounded panel. Keep
-  // WEBVIEW_INSET in sync with this radius (rounded-xl = 12px).
+  // cannot clip - so useTauriChatWebview.ts shrinks the webview inside the
+  // panel (WEBVIEW_PADDING) and the placeholder background below shows
+  // through around it as the rounded-corner frame. Keep WEBVIEW_PADDING in
+  // sync with this radius (rounded-xl = 12px), and keep the placeholder
+  // background as the paper color (bg-surface) so the frame blends with the
+  // tinted webview content instead of a white rectangle.
   const containerClass = 'fixed z-[9998] flex flex-col bg-surface-card overflow-hidden border border-border/60 rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.08)]'
     + (!isFloating ? ' border-l-2 border-l-border' : '')
 
@@ -130,12 +133,15 @@ export function ChatPanel({ panel }: ChatPanelProps) {
             <div className="w-px h-full bg-border/60 group-hover:bg-primary/40 transition-colors" />
           </div>
         )}
-        <div ref={contentRef} className="flex-1 min-w-0 bg-white relative">
+        {/* bg-surface (paper color): the strip exposed around the inset
+            native webview doubles as the rounded-corner frame — it must
+            blend with the tinted webview content, not a white rectangle. */}
+        <div ref={contentRef} className="flex-1 min-w-0 bg-surface relative">
           {isTauri() ? (
             panel.currentUrl ? (
               // The native webview draws over this area. Keep a subtle background
               // so the panel does not flash transparent while Tauri creates it.
-              <div className="absolute inset-0 bg-white" />
+              <div className="absolute inset-0 bg-surface" />
             ) : (
               <div className="flex items-center justify-center h-full text-sm text-text-secondary">
                 未选择 AI 服务

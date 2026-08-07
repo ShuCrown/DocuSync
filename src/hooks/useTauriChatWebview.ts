@@ -12,18 +12,25 @@ interface Bounds {
   height: number
 }
 
-// Inset the native webview so its sharp corners stay inside the panel's
-// rounded corners. A native webview is an opaque rectangle that CSS
-// `overflow-hidden` cannot clip; without this inset its corners protrude
-// beyond the panel (the "chat overflows the panel" bug). Top stays flush (the
-// webview sits right under the header, away from the top rounded corners);
-// left/right/bottom are inset to clear the bottom rounded corners. Keep this
-// in sync with the panel's `rounded-xl` radius (12px) in ChatPanel.tsx.
-const WEBVIEW_INSET = 4
-
-// Extra padding inside the webview area so AI service pages have breathing
-// room instead of sitting flush against the panel edges.
-const CONTENT_PADDING = 12
+// Inset the native webview so its sharp corners never cut across the panel's
+// rounded corners. A native child webview is an opaque rectangle that CSS
+// `overflow-hidden` cannot clip, so instead of clipping we shrink it inside
+// the panel and let the panel's background (paper color, see ChatPanel.tsx)
+// show around it: the exposed strip is the rounded-corner frame, making the
+// AI page look inset like a card instead of a hard rectangle.
+//
+// Top stays at 0: the webview sits right under the header (no rounded corner
+// there), and a y-offset makes it overlap the header on macOS (Wry performs
+// a Cocoa bottom-left flip). 4px is the compact inset this design calls for:
+// smaller than the rounded-xl arc (12px), so the corners overlap the arc
+// slightly — visually negligible and keeps the panel tight. Keep in sync
+// with ChatPanel.tsx.
+const WEBVIEW_PADDING = {
+  top: 0,
+  left: 4,
+  right: 4,
+  bottom: 4,
+}
 // The AI page lives in a native child webview that draws on top of the React
 // DOM, so a React overlay can never tint it. Instead we inject a multiply
 // overlay *inside* the webview at creation (Rust `PaperOverlay`), tinting the
@@ -49,16 +56,14 @@ function getPaperOverlay(): PaperOverlay | null {
 
 function readBounds(el: HTMLElement): Bounds {
   const r = el.getBoundingClientRect()
-  const inset = WEBVIEW_INSET + CONTENT_PADDING
   return {
-    x: r.left + inset,
-    // Keep y at the top of the content area (no CONTENT_PADDING offset).
-    // Adding a y offset causes the native webview to overlap the panel
-    // header on macOS where Wry performs a Cocoa bottom-left flip.
-    y: r.top,
-    width: r.width - 2 * inset,
-    // Bottom: WEBVIEW_INSET (rounded corners) + CONTENT_PADDING (breathing room)
-    height: r.height - WEBVIEW_INSET - CONTENT_PADDING,
+    x: r.left + WEBVIEW_PADDING.left,
+    // Keep y at the top of the content area (no top padding): adding a y
+    // offset makes the native webview overlap the panel header on macOS
+    // where Wry performs a Cocoa bottom-left flip.
+    y: r.top + WEBVIEW_PADDING.top,
+    width: r.width - WEBVIEW_PADDING.left - WEBVIEW_PADDING.right,
+    height: r.height - WEBVIEW_PADDING.top - WEBVIEW_PADDING.bottom,
   }
 }
 
