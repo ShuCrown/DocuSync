@@ -50,6 +50,12 @@ export function ChatPanel({ panel }: ChatPanelProps) {
 
   // All modes use fixed positioning so the component never moves between
   // DOM parents (which would unmount/remount and destroy the native webview).
+  //
+  // All four corners stay rounded (rounded-xl). The chat body is a native
+  // Tauri child webview - an opaque rectangle that CSS `overflow-hidden`
+  // cannot clip - so useTauriChatWebview.ts insets the webview bounds
+  // (WEBVIEW_INSET) to keep its sharp corners inside the rounded panel. Keep
+  // WEBVIEW_INSET in sync with this radius (rounded-xl = 12px).
   const containerClass = 'fixed z-[9998] flex flex-col bg-surface-card overflow-hidden border border-border/60 rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.08)]'
     + (!isFloating ? ' border-l-2 border-l-border' : '')
 

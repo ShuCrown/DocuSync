@@ -10,13 +10,22 @@ interface Bounds {
   height: number
 }
 
+// Inset the native webview so its sharp corners stay inside the panel's
+// rounded corners. A native webview is an opaque rectangle that CSS
+// `overflow-hidden` cannot clip; without this inset its corners protrude
+// beyond the panel (the "chat overflows the panel" bug). Top stays flush (the
+// webview sits right under the header, away from the top rounded corners);
+// left/right/bottom are inset to clear the bottom rounded corners. Keep this
+// in sync with the panel's `rounded-xl` radius (12px) in ChatPanel.tsx.
+const WEBVIEW_INSET = 4
+
 function readBounds(el: HTMLElement): Bounds {
   const r = el.getBoundingClientRect()
   return {
-    x: r.left,
+    x: r.left + WEBVIEW_INSET,
     y: r.top,
-    width: r.width,
-    height: r.height,
+    width: r.width - 2 * WEBVIEW_INSET,
+    height: r.height - WEBVIEW_INSET,
   }
 }
 
@@ -66,15 +75,12 @@ export function useTauriChatWebview(
 
     try {
       if (urlRef.current !== url) {
-        console.log('[useTauriChatWebview] CREATE webview, url:', url)
         await invoke('create_ai_chat_webview', { url, bounds })
         hiddenRef.current = false
       } else if (hiddenRef.current) {
-        console.log('[useTauriChatWebview] SHOW hidden webview, bounds:', bounds)
         await invoke('show_ai_chat_webview', { bounds })
         hiddenRef.current = false
       } else {
-        console.log('[useTauriChatWebview] UPDATE webview, bounds:', bounds)
         await invoke('update_ai_chat_webview', { bounds })
       }
       urlRef.current = url
@@ -95,7 +101,6 @@ export function useTauriChatWebview(
 
   useEffect(() => {
     if (!isTauri()) return
-    console.log('[useTauriChatWebview] effect fired, mode:', panel.mode, 'urlRef:', urlRef.current, 'hiddenRef:', hiddenRef.current)
 
     // Fully closed — destroy the webview, clear all state.
     if (panel.mode === 'closed') {

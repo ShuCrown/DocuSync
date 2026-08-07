@@ -45,17 +45,6 @@ fn transform_bounds(bounds: Bounds) -> (LogicalPosition<f64>, LogicalSize<f64>) 
     (LogicalPosition::new(bounds.x, bounds.y), LogicalSize::new(bounds.width, bounds.height))
 }
 
-fn to_logical(
-    window: &tauri::Window,
-    bounds: Bounds,
-) -> Result<(LogicalPosition<f64>, LogicalSize<f64>), String> {
-    let sf = window.scale_factor().map_err(|e| e.to_string())?;
-    let (position, size) = transform_bounds(bounds);
-    eprintln!("[ai-chat-webview] bounds={bounds:?} sf={sf} position={position:?} size={size:?}");
-
-    Ok((position, size))
-}
-
 #[tauri::command]
 async fn create_ai_chat_webview(
     window: tauri::Window,
@@ -64,7 +53,7 @@ async fn create_ai_chat_webview(
     bounds: Bounds,
 ) -> Result<(), String> {
     let url: url::Url = url.parse().map_err(|e| format!("invalid url: {e}"))?;
-    let (position, size) = to_logical(&window, bounds)?;
+    let (position, size) = transform_bounds(bounds);
 
     let mut guard = state.0.lock().unwrap();
     if let Some(wv) = guard.clone() {
@@ -85,11 +74,10 @@ async fn create_ai_chat_webview(
 
 #[tauri::command]
 async fn update_ai_chat_webview(
-    window: tauri::Window,
     state: State<'_, AiChatWebview>,
     bounds: Bounds,
 ) -> Result<(), String> {
-    let (position, size) = to_logical(&window, bounds)?;
+    let (position, size) = transform_bounds(bounds);
     if let Some(wv) = state.0.lock().unwrap().clone() {
         wv.set_position(position).map_err(|e| e.to_string())?;
         wv.set_size(size).map_err(|e| e.to_string())?;
@@ -121,11 +109,10 @@ async fn hide_ai_chat_webview(state: State<'_, AiChatWebview>) -> Result<(), Str
 /// Move a previously offscreen webview back to its correct position/size.
 #[tauri::command]
 async fn show_ai_chat_webview(
-    window: tauri::Window,
     state: State<'_, AiChatWebview>,
     bounds: Bounds,
 ) -> Result<(), String> {
-    let (position, size) = to_logical(&window, bounds)?;
+    let (position, size) = transform_bounds(bounds);
     if let Some(wv) = state.0.lock().unwrap().clone() {
         wv.set_size(size).map_err(|e| e.to_string())?;
         wv.set_position(position).map_err(|e| e.to_string())?;
