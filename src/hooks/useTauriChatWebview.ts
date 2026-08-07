@@ -28,9 +28,13 @@ function readBounds(el: HTMLElement): Bounds {
   const inset = WEBVIEW_INSET + CONTENT_PADDING
   return {
     x: r.left + inset,
-    y: r.top + CONTENT_PADDING,
+    // Keep y at the top of the content area (no CONTENT_PADDING offset).
+    // Adding a y offset causes the native webview to overlap the panel
+    // header on macOS where Wry performs a Cocoa bottom-left flip.
+    y: r.top,
     width: r.width - 2 * inset,
-    height: r.height - WEBVIEW_INSET - 2 * CONTENT_PADDING,
+    // Bottom: WEBVIEW_INSET (rounded corners) + CONTENT_PADDING (breathing room)
+    height: r.height - WEBVIEW_INSET - CONTENT_PADDING,
   }
 }
 
