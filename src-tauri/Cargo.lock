@@ -935,8 +935,10 @@ dependencies = [
 
 [[package]]
 name = "docusync-tauri"
-version = "0.0.15"
+version = "0.0.20"
 dependencies = [
+ "objc2",
+ "objc2-foundation",
  "serde",
  "serde_json",
  "tauri",

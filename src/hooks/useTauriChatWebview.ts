@@ -1,6 +1,8 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { isTauri } from '../utils/tauri'
+import { getWindowInsets } from './useWindowInsets'
+import { hexToRgba } from '../utils/color'
 import type { ChatPanelState } from './useChatPanel'
 
 interface Bounds {
@@ -22,6 +24,28 @@ const WEBVIEW_INSET = 4
 // Extra padding inside the webview area so AI service pages have breathing
 // room instead of sitting flush against the panel edges.
 const CONTENT_PADDING = 12
+// The AI page lives in a native child webview that draws on top of the React
+// DOM, so a React overlay can never tint it. Instead we inject a multiply
+// overlay *inside* the webview at creation (Rust `PaperOverlay`), tinting the
+// page with the app's paper color. Keep the alpha low — it is a warm tint,
+// not a color change. Tune this constant to taste.
+const PAPER_OVERLAY_ALPHA = 0.16
+
+interface PaperOverlay {
+  background: string
+}
+
+let paperOverlay: PaperOverlay | null | undefined
+
+/** Paper-color overlay for the child webview, resolved once (single theme). */
+function getPaperOverlay(): PaperOverlay | null {
+  if (paperOverlay !== undefined) return paperOverlay
+  const surface =
+    getComputedStyle(document.documentElement).getPropertyValue('--color-surface').trim() ||
+    '#f5f4ed'
+  paperOverlay = { background: hexToRgba(surface, PAPER_OVERLAY_ALPHA) }
+  return paperOverlay
+}
 
 function readBounds(el: HTMLElement): Bounds {
   const r = el.getBoundingClientRect()
@@ -68,6 +92,11 @@ export function useTauriChatWebview(
     if (!el) return
 
     const bounds = readBounds(el)
+    // On macOS, `getBoundingClientRect()` is measured against the window
+    // frame while the child webview is positioned relative to the content
+    // view; shift by the native titlebar inset (0 on Windows/Linux) so the
+    // webview stays glued to its placeholder. Cached after the first call.
+    bounds.y += (await getWindowInsets()).top
     const url = panel.currentUrl
 
     // Nothing to show.
@@ -84,7 +113,11 @@ export function useTauriChatWebview(
 
     try {
       if (urlRef.current !== url) {
-        await invoke('create_ai_chat_webview', { url, bounds })
+        await invoke('create_ai_chat_webview', {
+          url,
+          bounds,
+          overlay: getPaperOverlay(),
+        })
         hiddenRef.current = false
       } else if (hiddenRef.current) {
         await invoke('show_ai_chat_webview', { bounds })

@@ -8,6 +8,8 @@
 
 use tauri::{LogicalPosition, LogicalSize, State, Webview, WebviewUrl, Wry};
 
+mod platform;
+
 const AI_CHAT_WEBVIEW_LABEL: &str = "ai-chat";
 
 /// Bounds for the AI chat child webview, in logical CSS pixels relative to the
@@ -45,12 +47,50 @@ fn transform_bounds(bounds: Bounds) -> (LogicalPosition<f64>, LogicalSize<f64>) 
     (LogicalPosition::new(bounds.x, bounds.y), LogicalSize::new(bounds.width, bounds.height))
 }
 
+/// Semi-transparent paper-color overlay injected into the child webview.
+///
+/// The AI pages (DeepSeek etc.) load in a native child webview, which sits on
+/// top of the React DOM — so a CSS overlay in React can never tint it. Instead
+/// we inject the overlay *inside* the webview via
+/// `WebviewBuilder::initialization_script`, where it participates in the
+/// page's own compositing and `mix-blend-mode: multiply` works as expected.
+#[derive(serde::Deserialize, Clone, Debug)]
+struct PaperOverlay {
+    /// CSS background value for the overlay (e.g. `rgba(245,244,237,0.16)`).
+    background: String,
+}
+
+/// Build the idempotent script that stamps a fixed, full-area,
+/// pointer-transparent multiply overlay onto the page. Re-running it replaces
+/// the previous overlay, so it is safe to call again later (e.g. theme switch).
+fn paper_overlay_script(overlay: &PaperOverlay) -> String {
+    format!(
+        r#"(function(){{
+  function apply(){{
+    var old = document.getElementById('docusync-paper-overlay');
+    if (old) {{ old.remove(); }}
+    var d = document.createElement('div');
+    d.id = 'docusync-paper-overlay';
+    d.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none;mix-blend-mode:multiply;background:{bg};';
+    document.documentElement.appendChild(d);
+  }}
+  if (document.readyState === 'loading') {{
+    document.addEventListener('DOMContentLoaded', apply);
+  }} else {{
+    apply();
+  }}
+}})();"#,
+        bg = overlay.background
+    )
+}
+
 #[tauri::command]
 async fn create_ai_chat_webview(
     window: tauri::Window,
     state: State<'_, AiChatWebview>,
     url: String,
     bounds: Bounds,
+    overlay: Option<PaperOverlay>,
 ) -> Result<(), String> {
     let url: url::Url = url.parse().map_err(|e| format!("invalid url: {e}"))?;
     let (position, size) = transform_bounds(bounds);
@@ -61,8 +101,11 @@ async fn create_ai_chat_webview(
         wv.set_size(size).map_err(|e| e.to_string())?;
         wv.navigate(url).map_err(|e| e.to_string())?;
     } else {
-        let builder =
+        let mut builder =
             tauri::webview::WebviewBuilder::new(AI_CHAT_WEBVIEW_LABEL, WebviewUrl::External(url));
+        if let Some(overlay) = overlay {
+            builder = builder.initialization_script(paper_overlay_script(&overlay));
+        }
         let wv = window
             .add_child(builder, position, size)
             .map_err(|e| e.to_string())?;
@@ -120,6 +163,31 @@ async fn show_ai_chat_webview(
     Ok(())
 }
 
+/// Window content-area insets reported by the host platform.
+#[derive(serde::Serialize, Clone, Copy, Debug)]
+struct WindowInsets {
+    /// Distance from the top of the window frame to the top of the content
+    /// area (the titlebar inset), in logical CSS px. 0 on Windows/Linux.
+    top: f64,
+}
+
+/// Report the window's content-area inset (titlebar safe area on macOS).
+///
+/// The React layer adds `top` to `getBoundingClientRect().top` before sending
+/// child-webview bounds, so the native webview lines up with its placeholder
+/// on macOS — where `getBoundingClientRect()` is measured against the window
+/// frame while child webviews are positioned relative to the content view.
+///
+/// The value comes from `NSWindow.contentLayoutRect` at runtime (see
+/// `platform::macos`), so no hardcoded 28/30/32px offsets are needed and
+/// nothing about `transform_bounds` changes.
+#[tauri::command]
+fn get_window_insets(window: tauri::Window) -> Result<WindowInsets, String> {
+    Ok(WindowInsets {
+        top: platform::content_layout_top(&window)?,
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -135,6 +203,7 @@ pub fn run() {
             close_ai_chat_webview,
             hide_ai_chat_webview,
             show_ai_chat_webview,
+            get_window_insets,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

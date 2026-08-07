@@ -25,3 +25,9 @@ tauri-plugin-process = "2.3.1"
 
 [features]
 devtools = ["tauri/devtools"]
+
+# macOS-only native bindings (used by `platform::macos` to read the real
+# titlebar safe-area via NSWindow.contentLayoutRect).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
