@@ -14,12 +14,15 @@ import { DuplicateConfirm } from './components/DuplicateConfirm'
 import { ShareDialog } from './components/ShareDialog'
 import { ChatPanelContainer } from './components/ChatPanelContainer'
 import { ChatPanel, ChatRestoreBubble } from './components/ChatPanel'
+import { UpdateBanner } from './components/UpdateBanner'
 import { useFileUpload } from './hooks/useFileUpload'
 import { useFileHistory } from './hooks/useFileHistory'
 import { useAccount } from './hooks/useAccount'
 import { useSplitView } from './hooks/useSplitView'
 import { useScrollPosition, findScrollable } from './hooks/useScrollPosition'
+import { autoCheckForUpdate } from './hooks/useUpdater'
 import { getFileCategory, isSupported } from './utils/fileType'
+import { isTauri } from './utils/tauri'
 import { getStorageMode } from './lib/storage-mode'
 import * as api from './lib/api'
 import type { FileRecord } from './hooks/useFileHistory'
@@ -66,6 +69,11 @@ export default function App() {
   // Check account status on mount
   useEffect(() => {
     account.checkStatus()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Check for app updates on startup (Tauri only; no-op in the browser)
+  useEffect(() => {
+    if (isTauri()) autoCheckForUpdate()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Get the active file based on which pane is active
@@ -439,6 +447,9 @@ export default function App() {
             open={settingsOpen}
             onClose={handleSettingsClose}
           />
+
+          {/* Startup update banner (Tauri only; renders nothing in the browser) */}
+          <UpdateBanner />
 
           {shareDoc && (
             <ShareDialog

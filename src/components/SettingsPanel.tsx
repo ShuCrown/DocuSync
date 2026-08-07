@@ -18,6 +18,7 @@ import {
   type MigrationProgress,
   type MigrationResult,
 } from '../lib/api-migration'
+import { UpdateSection } from './UpdateSection'
 
 interface SettingsPanelProps {
   open: boolean
@@ -442,6 +443,9 @@ function SettingsPanelBody({ mode, remoteBase, onClose }: BodyProps) {
               )}
             </div>
           )}
+
+          {/* App update - Tauri only */}
+          {localAvailable && <UpdateSection />}
         </div>
 
         {/* Footer actions */}
