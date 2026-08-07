@@ -142,12 +142,14 @@ export function ChatPanel({ panel }: ChatPanelProps) {
               </div>
             )
           ) : panel.currentUrl ? (
-            <iframe
-              src={panel.currentUrl}
-              title={panel.currentTitle ?? 'AI Chat'}
-              className="w-full h-full border-0"
-              allow="clipboard-read; clipboard-write; popup; popups-to-escape-sandbox"
-            />
+            <div className="p-3 w-full h-full">
+              <iframe
+                src={panel.currentUrl}
+                title={panel.currentTitle ?? 'AI Chat'}
+                className="w-full h-full border-0 rounded-lg"
+                allow="clipboard-read; clipboard-write; popup; popups-to-escape-sandbox"
+              />
+            </div>
           ) : (
             <div className="flex items-center justify-center h-full text-sm text-text-secondary">
               未选择 AI 服务

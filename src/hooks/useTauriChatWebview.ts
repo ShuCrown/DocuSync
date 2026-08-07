@@ -19,13 +19,18 @@ interface Bounds {
 // in sync with the panel's `rounded-xl` radius (12px) in ChatPanel.tsx.
 const WEBVIEW_INSET = 4
 
+// Extra padding inside the webview area so AI service pages have breathing
+// room instead of sitting flush against the panel edges.
+const CONTENT_PADDING = 12
+
 function readBounds(el: HTMLElement): Bounds {
   const r = el.getBoundingClientRect()
+  const inset = WEBVIEW_INSET + CONTENT_PADDING
   return {
-    x: r.left + WEBVIEW_INSET,
-    y: r.top,
-    width: r.width - 2 * WEBVIEW_INSET,
-    height: r.height - WEBVIEW_INSET,
+    x: r.left + inset,
+    y: r.top + CONTENT_PADDING,
+    width: r.width - 2 * inset,
+    height: r.height - WEBVIEW_INSET - 2 * CONTENT_PADDING,
   }
 }
 
