@@ -295,7 +295,7 @@ export default function App() {
 
   const paneBPickerElement = useMemo(() => (
     <div className="h-full flex flex-col">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border/40 bg-surface-alt/40 shrink-0">
+      <div className="flex items-center justify-between px-3 h-9 border-b border-border/40 bg-surface-alt/40 shrink-0">
         <span className="text-xs font-medium text-text-secondary">选择对比文档</span>
         <button
           onClick={handlePaneBClose}

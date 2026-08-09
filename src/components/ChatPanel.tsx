@@ -81,7 +81,7 @@ export function ChatPanel({ panel }: ChatPanelProps) {
       {/* Header — doubles as the drag handle in floating mode */}
       <div
         onMouseDown={isFloating ? startHeaderDrag : undefined}
-        className={`flex items-center gap-1.5 px-2.5 h-9 border-b border-border/40 bg-surface-alt/40 shrink-0 ${
+        className={`flex items-center gap-1.5 px-3 h-9 border-b border-border/40 bg-surface-alt/40 shrink-0 ${
           isFloating ? 'cursor-move select-none' : ''
         }`}
       >
