@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, Settings } from 'lucide-react'
+import { Settings } from 'lucide-react'
 import { useAIServices } from '../hooks/useAIServices'
 import { AISettingsPanel } from './AISettingsPanel'
 import type { AIService } from '../hooks/useAIServices'
@@ -37,7 +37,15 @@ export function ServiceIcon({ service, className }: { service: AIService; classN
 interface Pos {
   top: number
   left: number
+  placement: 'above' | 'below'
 }
+
+// Rough toolbar width estimate used for horizontal clamping. The actual
+// width varies with the number of enabled services, but clamping against
+// this estimate keeps the toolbar comfortably inside the viewport.
+const TOOLBAR_ESTIMATED_WIDTH = 220
+const TOOLBAR_HEIGHT = 44
+const VIEWPORT_MARGIN = 8
 
 // --- Component ---
 
@@ -45,26 +53,45 @@ export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, ti
   const { services, enabledServices, addService, removeService, moveService, toggleService, updateService, resetToDefaults } = useAIServices()
   const [text, setText] = useState('')
   const [pos, setPos] = useState<Pos | null>(null)
-  const [copied, setCopied] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const toolbarRef = useRef<HTMLDivElement>(null)
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const selectTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
-  // Detect text selection on mouseup / keyup
+  // Detect text selection on mouseup / keyup. Debounced so rapid keyboard
+  // selection (Shift+arrows) doesn't flicker the toolbar.
   const handleSelection = useCallback(() => {
-    clearTimeout(hideTimer.current)
-    const sel = window.getSelection()
-    if (!sel || sel.isCollapsed || !sel.rangeCount) return
+    clearTimeout(selectTimer.current)
+    selectTimer.current = setTimeout(() => {
+      clearTimeout(hideTimer.current)
+      const sel = window.getSelection()
+      if (!sel || sel.isCollapsed || !sel.rangeCount) return
 
-    const t = sel.toString().trim()
-    if (!t) return
+      const t = sel.toString().trim()
+      if (!t) return
 
-    const rect = sel.getRangeAt(0).getBoundingClientRect()
-    if (rect.width === 0 && rect.height === 0) return
+      const rect = sel.getRangeAt(0).getBoundingClientRect()
+      if (rect.width === 0 && rect.height === 0) return
 
-    setPos({ top: rect.top - 8, left: rect.left + rect.width / 2 })
-    setText(t)
-    setCopied(false)
+      // Position adaptive: prefer above; flip below if not enough headroom.
+      const placement: 'above' | 'below' =
+        rect.top < TOOLBAR_HEIGHT + VIEWPORT_MARGIN ? 'below' : 'above'
+
+      // Clamp horizontal position so the toolbar stays fully on-screen.
+      const viewportWidth = window.innerWidth
+      const halfWidth = TOOLBAR_ESTIMATED_WIDTH / 2
+      const rawLeft = rect.left + rect.width / 2
+      const minLeft = halfWidth + VIEWPORT_MARGIN
+      const maxLeft = viewportWidth - halfWidth - VIEWPORT_MARGIN
+      const left = Math.max(minLeft, Math.min(maxLeft, rawLeft))
+
+      const top = placement === 'above'
+        ? rect.top - VIEWPORT_MARGIN
+        : rect.bottom + VIEWPORT_MARGIN
+
+      setPos({ top, left, placement })
+      setText(t)
+    }, 80)
   }, [])
 
   useEffect(() => {
@@ -73,6 +100,7 @@ export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, ti
     return () => {
       document.removeEventListener('mouseup', handleSelection)
       document.removeEventListener('keyup', handleSelection)
+      clearTimeout(selectTimer.current)
     }
   }, [handleSelection])
 
@@ -92,27 +120,40 @@ export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, ti
     return () => document.removeEventListener('mousedown', onDown)
   }, [])
 
-  const handleClick = async (service: AIService) => {
-    if (!text) return
-
-    // Copy to clipboard
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch {
-      const ta = document.createElement('textarea')
-      ta.value = text
-      ta.style.position = 'fixed'
-      ta.style.opacity = '0'
-      document.body.appendChild(ta)
-      ta.select()
-      document.execCommand('copy')
-      document.body.removeChild(ta)
+  // Esc dismisses the toolbar (the settings panel handles its own Esc).
+  useEffect(() => {
+    if (!pos || settingsOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        window.getSelection()?.removeAllRanges()
+        setPos(null)
+        setText('')
+      }
     }
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [pos, settingsOpen])
 
-    // Open the inline chat panel (split / floating). Falls back to a popup
-    // window only when no openChat handler is wired up.
+  const copyToClipboard = async (content: string): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(content)
+    } catch {
+      try {
+        const ta = document.createElement('textarea')
+        ta.value = content
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      } catch {
+        /* ignore — user can still open the AI panel and select manually */
+      }
+    }
+  }
+
+  const openService = (service: AIService) => {
     if (onOpenChat) {
       onOpenChat(service.url, service.name)
     } else {
@@ -123,60 +164,78 @@ export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, ti
         `width=${w},height=${h},left=${Math.round((screen.width - w) / 2)},top=${Math.round((screen.height - h) / 2)},scrollbars=yes,resizable=yes`,
       )
     }
+  }
+
+  const handleServiceClick = async (service: AIService) => {
+    if (!text) return
+    await copyToClipboard(text)
+    openService(service)
 
     window.getSelection()?.removeAllRanges()
     setPos(null)
+    setText('')
   }
 
   if (!pos || !text) return null
+
+  const transform = pos.placement === 'above'
+    ? 'translate(-50%, -100%)'
+    : 'translate(-50%, 0)'
+
+  const arrowEl = (
+    <div className="flex justify-center">
+      <div
+        className={`w-2 h-2 bg-surface-card border-border/60 rotate-45 ${
+          pos.placement === 'above' ? 'border-r border-b -mt-1' : 'border-l border-t -mb-1'
+        }`}
+      />
+    </div>
+  )
 
   return createPortal(
     <>
       <div
         ref={toolbarRef}
+        role="toolbar"
+        aria-label="AI 问答工具栏"
         className="fixed z-[9999] pointer-events-auto"
-        style={{ top: pos.top, left: pos.left, transform: 'translate(-50%, -100%)' }}
+        style={{ top: pos.top, left: pos.left, transform }}
         onMouseDown={(e) => e.preventDefault()}
       >
-        <div className="flex items-center gap-1 px-2 py-1.5 bg-surface-card rounded-lg shadow-[0_2px_12px_rgba(44,40,37,0.12)] border border-border/60">
+        {/* When below the selection, the arrow sits on top pointing up. */}
+        {pos.placement === 'below' && arrowEl}
+
+        <div className="flex items-center gap-1 px-2 py-1.5 bg-surface-card rounded-lg shadow-[0_4px_16px_rgba(44,40,37,0.16)] border border-border/60">
+          {/* AI services — copy selection and open chat */}
           {enabledServices.map((s) => (
             <button
               key={s.id}
-              onClick={() => handleClick(s)}
-              className="flex items-center justify-center w-8 h-8 rounded-md hover:bg-surface-alt transition-colors group"
+              onClick={() => handleServiceClick(s)}
+              className="flex items-center justify-center w-8 h-8 rounded-md hover:bg-surface-alt transition-colors"
               title={`复制并打开 ${s.name}`}
+              aria-label={`复制并打开 ${s.name}`}
             >
               <ServiceIcon service={s} className="w-5 h-5" />
             </button>
           ))}
 
-          <div className="w-px h-5 bg-border mx-0.5" />
+          {enabledServices.length > 0 && (
+            <div className="w-px h-5 bg-border mx-0.5" />
+          )}
 
           {/* Settings */}
           <button
             onClick={() => setSettingsOpen(true)}
             className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-surface-alt transition-colors text-text-secondary hover:text-text"
             title="管理 AI 问答服务"
+            aria-label="管理 AI 问答服务"
           >
             <Settings className="w-3.5 h-3.5" />
           </button>
-
-          <div className="w-px h-5 bg-border mx-0.5" />
-
-          {/* Copied indicator */}
-          {copied ? (
-            <div className="flex items-center gap-1 px-1.5">
-              <Check className="w-3.5 h-3.5 text-success" />
-              <span className="text-[11px] text-success whitespace-nowrap">已复制，请粘贴</span>
-            </div>
-          ) : text.length > 20 ? (
-            <span className="text-[11px] text-text-secondary px-1.5 whitespace-nowrap">{text.length} 字</span>
-          ) : null}
         </div>
 
-        <div className="flex justify-center">
-          <div className="w-2 h-2 bg-surface-card border-r border-b border-border/60 rotate-45 -mt-1" />
-        </div>
+        {/* When above the selection, the arrow sits below pointing down. */}
+        {pos.placement === 'above' && arrowEl}
       </div>
 
       {/* Settings panel — stop mousedown propagation so the toolbar hideTimer doesn't fire */}
