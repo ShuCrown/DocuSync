@@ -38,14 +38,18 @@ const WEBVIEW_PADDING = {
 // not a color change. Tune this constant to taste.
 const PAPER_OVERLAY_ALPHA = 0.16
 
-interface PaperOverlay {
+export interface PaperOverlay {
   background: string
 }
 
 let paperOverlay: PaperOverlay | null | undefined
 
-/** Paper-color overlay for the child webview, resolved once (single theme). */
-function getPaperOverlay(): PaperOverlay | null {
+/**
+ * Paper-color overlay for the AI chat webview, resolved once (single theme).
+ * Shared by the in-main-window child webview (split mode) and the standalone
+ * floating OS window — both tint the remote AI page the same way.
+ */
+export function getPaperOverlay(): PaperOverlay | null {
   if (paperOverlay !== undefined) return paperOverlay
   const surface =
     getComputedStyle(document.documentElement).getPropertyValue('--color-surface').trim() ||
@@ -169,7 +173,20 @@ export function useTauriChatWebview(
       return
     }
 
-    // Panel is visible — sync bounds now and on resize/layout changes.
+    // Floating (Tauri) — handled by the standalone OS window
+    // (useTauriChatWindow), not a child webview. Tear down any child webview
+    // so the two views never coexist. The split↔floating transition recreates
+    // the webview, so conversation state is lost on that switch (by design).
+    if (panel.mode === 'floating') {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      appliedRef.current = null
+      urlRef.current = null
+      hiddenRef.current = false
+      invoke('close_ai_chat_webview').catch(() => {})
+      return
+    }
+
+    // Split mode — panel is visible, sync bounds now and on resize/layout changes.
     schedule()
 
     const onResize = () => schedule()

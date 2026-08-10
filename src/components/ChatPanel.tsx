@@ -16,6 +16,7 @@ import {
   CHAT_PANEL_FLOAT_MAX_HEIGHT,
 } from '../hooks/useChatPanel'
 import { useTauriChatWebview } from '../hooks/useTauriChatWebview'
+import { useTauriChatWindow } from '../hooks/useTauriChatWindow'
 import { isTauri } from '../utils/tauri'
 
 interface ChatPanelProps {
@@ -32,9 +33,13 @@ interface ChatPanelProps {
  *   inside the main window and is not subject to that restriction.
  *
  *   - split mode: docked on the right with a draggable left-edge divider that
- *     resizes `panel.splitWidth`.
- *   - floating mode: a position:fixed overlay dragged by its header, sized
- *     and positioned via `panel.floatingRect`.
+ *     resizes `panel.splitWidth`. Uses an in-main-window child webview.
+ *   - floating mode: in Tauri, the chat detaches into a standalone OS window
+ *     (see useTauriChatWindow) so it can move outside the main window and onto
+ *     other monitors; this component renders just a small control pill in the
+ *     main window (switch-to-split / close). In the browser, floating stays an
+ *     in-page position:fixed overlay dragged by its header and resized via
+ *     edge handles, sized/positioned via `panel.floatingRect`.
  *   - collapsed mode: component stays mounted but hidden via CSS so the
  *     native webview preserves its page state.
  *
@@ -45,16 +50,29 @@ interface ChatPanelProps {
 export function ChatPanel({ panel }: ChatPanelProps) {
   const isFloating = panel.mode === 'floating'
   const isCollapsed = panel.mode === 'collapsed'
+  // Tauri floating mode uses a standalone OS window instead of an in-page
+  // overlay; only the browser still renders the full floating overlay.
+  const isTauriFloating = isTauri() && isFloating
   const contentRef = useRef<HTMLDivElement | null>(null)
   const startDividerDrag = useDividerDrag(panel)
   const startHeaderDrag = useHeaderDrag(panel)
   const startResize = useResizeDrag(panel)
 
   useTauriChatWebview(panel, contentRef)
+  useTauriChatWindow(panel)
 
   // Collapsed: keep mounted but invisible so the native webview survives.
   if (isCollapsed) {
     return <div style={{ display: 'none' }} ref={contentRef} />
+  }
+
+  // Tauri floating mode: the chat lives in a standalone OS window managed by
+  // useTauriChatWindow. Here we only render a compact control pill in the main
+  // window so the user can switch back to split or close the chat without
+  // having to focus the floating window. The pill is plain React and can call
+  // panel actions directly — no remote-page IPC needed.
+  if (isTauriFloating) {
+    return <ChatFloatingPill panel={panel} />
   }
 
   // All modes use fixed positioning so the component never moves between
@@ -204,6 +222,47 @@ export function ChatRestoreBubble({ onClick }: { onClick: () => void }) {
     >
       <MessageSquare className="w-4.5 h-4.5" />
     </button>
+  )
+}
+
+/**
+ * Compact control pill rendered in the main window while the chat is detached
+ * into a standalone floating OS window (Tauri floating mode). The floating
+ * window itself is a native OS window with its own titlebar (move / resize /
+ * minimize / close); this pill just gives the user an in-main-window handle to
+ * switch back to split mode or close the chat without focusing the floating
+ * window. Native window close is also wired to `panel.close()` via Rust's
+ * `ai-chat-window-closed` event (see useTauriChatWindow).
+ */
+function ChatFloatingPill({ panel }: { panel: ChatPanelState }) {
+  return (
+    <div className="fixed top-3 right-3 z-[9998] flex items-center gap-1.5 pl-2.5 pr-1 h-9 rounded-xl bg-surface-card border border-border/60 shadow-[0_4px_24px_rgba(0,0,0,0.08)]">
+      <span
+        className="text-xs font-medium text-text truncate max-w-[160px]"
+        title={panel.currentTitle ?? 'AI Chat'}
+      >
+        {panel.currentTitle ?? 'AI Chat'}
+      </span>
+      <span className="text-[10px] text-text-secondary select-none">悬浮中</span>
+
+      {/* Switch back to split (re-dock into the main window) */}
+      <button
+        onClick={panel.switchToSplit}
+        className="p-1 rounded text-text-secondary hover:text-primary hover:bg-surface-alt transition-colors"
+        title="切换为分屏"
+      >
+        <Columns2 className="w-3.5 h-3.5" />
+      </button>
+
+      {/* Close: closes the floating window and the chat entirely */}
+      <button
+        onClick={panel.close}
+        className="p-1 rounded text-text-secondary hover:text-error hover:bg-error/10 transition-colors"
+        title="关闭"
+      >
+        <X className="w-3.5 h-3.5" />
+      </button>
+    </div>
   )
 }
 
