@@ -43,6 +43,11 @@ const SPLIT_MIN = 300
 const SPLIT_MAX = 720
 const SPLIT_DEFAULT = 420
 
+const FLOAT_MIN_WIDTH = 280
+const FLOAT_MIN_HEIGHT = 320
+const FLOAT_MAX_WIDTH = 800
+const FLOAT_MAX_HEIGHT = 900
+
 const FLOAT_DEFAULT: FloatingRect = { x: 0, y: 0, width: 380, height: 560 }
 
 const LS_SPLIT_WIDTH = 'docusync.chatpanel.splitWidth'
@@ -81,6 +86,10 @@ function clampSplit(width: number): number {
 
 export const CHAT_PANEL_SPLIT_MIN = SPLIT_MIN
 export const CHAT_PANEL_SPLIT_MAX = SPLIT_MAX
+export const CHAT_PANEL_FLOAT_MIN_WIDTH = FLOAT_MIN_WIDTH
+export const CHAT_PANEL_FLOAT_MIN_HEIGHT = FLOAT_MIN_HEIGHT
+export const CHAT_PANEL_FLOAT_MAX_WIDTH = FLOAT_MAX_WIDTH
+export const CHAT_PANEL_FLOAT_MAX_HEIGHT = FLOAT_MAX_HEIGHT
 
 export function useChatPanel(): ChatPanelState {
   const [mode, setMode] = useState<ChatPanelMode>('closed')

@@ -6,7 +6,15 @@ import {
   X,
   MessageSquare,
 } from 'lucide-react'
-import { type ChatPanelState, CHAT_PANEL_SPLIT_MIN, CHAT_PANEL_SPLIT_MAX } from '../hooks/useChatPanel'
+import {
+  type ChatPanelState,
+  CHAT_PANEL_SPLIT_MIN,
+  CHAT_PANEL_SPLIT_MAX,
+  CHAT_PANEL_FLOAT_MIN_WIDTH,
+  CHAT_PANEL_FLOAT_MIN_HEIGHT,
+  CHAT_PANEL_FLOAT_MAX_WIDTH,
+  CHAT_PANEL_FLOAT_MAX_HEIGHT,
+} from '../hooks/useChatPanel'
 import { useTauriChatWebview } from '../hooks/useTauriChatWebview'
 import { isTauri } from '../utils/tauri'
 
@@ -40,6 +48,7 @@ export function ChatPanel({ panel }: ChatPanelProps) {
   const contentRef = useRef<HTMLDivElement | null>(null)
   const startDividerDrag = useDividerDrag(panel)
   const startHeaderDrag = useHeaderDrag(panel)
+  const startResize = useResizeDrag(panel)
 
   useTauriChatWebview(panel, contentRef)
 
@@ -163,6 +172,21 @@ export function ChatPanel({ panel }: ChatPanelProps) {
           )}
         </div>
       </div>
+
+      {/* Resize handles — floating mode only.
+          The native child webview is inset 4px (WEBVIEW_PADDING) inside the
+          content area, so the outer ~4px of each edge remains clickable even
+          in Tauri mode. Handles are transparent; the cursor change signals
+          the resize affordance. */}
+      {isFloating && (
+        <>
+          <div onMouseDown={(e) => startResize(e, 'w')} className="absolute top-0 left-0 w-1.5 h-full cursor-ew-resize z-20" />
+          <div onMouseDown={(e) => startResize(e, 'e')} className="absolute top-0 right-0 w-1.5 h-full cursor-ew-resize z-20" />
+          <div onMouseDown={(e) => startResize(e, 's')} className="absolute bottom-0 left-0 w-full h-1.5 cursor-ns-resize z-20" />
+          <div onMouseDown={(e) => startResize(e, 'sw')} className="absolute bottom-0 left-0 w-3 h-3 cursor-nesw-resize z-20" />
+          <div onMouseDown={(e) => startResize(e, 'se')} className="absolute bottom-0 right-0 w-3 h-3 cursor-nwse-resize z-20" />
+        </>
+      )}
     </div>
   )
 }
@@ -236,6 +260,88 @@ function useHeaderDrag(panel: ChatPanelState) {
         const x = Math.max(0, Math.min(maxX, orig.x + (ev.clientX - startX)))
         const y = Math.max(0, Math.min(maxY, orig.y + (ev.clientY - startY)))
         panel.setFloatingRect({ ...orig, x, y })
+      })
+    }
+    const stop = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', stop)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', stop)
+  }, [panel])
+}
+
+// --- Floating-mode resize: drag an edge/corner to resize the overlay ---
+//
+// Supported directions: e (right), w (left), s (bottom), se, sw.
+// The top edge and top corners are intentionally excluded — the header
+// occupies the top and serves as the move handle.
+//
+// When resizing from the left (w/sw) the right edge stays fixed and x is
+// derived as (rightEdge - width) so the window grows/shrinks leftward
+// without jumping. Width and height are clamped to [FLOAT_MIN, FLOAT_MAX]
+// and capped so the window never extends past the viewport.
+
+type ResizeDir = 'e' | 'w' | 's' | 'se' | 'sw'
+
+function cursorFor(dir: ResizeDir): string {
+  switch (dir) {
+    case 'e':
+    case 'w':
+      return 'ew-resize'
+    case 's':
+      return 'ns-resize'
+    case 'se':
+      return 'nwse-resize'
+    case 'sw':
+      return 'nesw-resize'
+  }
+}
+
+function useResizeDrag(panel: ChatPanelState) {
+  const rectRef = useRef(panel.floatingRect)
+  useEffect(() => { rectRef.current = panel.floatingRect }, [panel.floatingRect])
+
+  return useCallback((e: React.MouseEvent, dir: ResizeDir) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const startX = e.clientX
+    const startY = e.clientY
+    const orig = rectRef.current
+    document.body.style.cursor = cursorFor(dir)
+    document.body.style.userSelect = 'none'
+    let raf = 0
+    const onMove = (ev: MouseEvent) => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        const dx = ev.clientX - startX
+        const dy = ev.clientY - startY
+        let { x, width, height } = orig
+        // y is never reassigned (no top-edge resize) — keep it as orig.y.
+
+        // Horizontal resize
+        if (dir === 'e' || dir === 'se') {
+          // Right edge moves, left edge (orig.x) stays fixed.
+          const maxW = Math.min(CHAT_PANEL_FLOAT_MAX_WIDTH, window.innerWidth - orig.x)
+          width = Math.max(CHAT_PANEL_FLOAT_MIN_WIDTH, Math.min(maxW, orig.width + dx))
+        } else if (dir === 'w' || dir === 'sw') {
+          // Left edge moves, right edge (orig.x + orig.width) stays fixed.
+          const rightEdge = orig.x + orig.width
+          const maxW = Math.min(CHAT_PANEL_FLOAT_MAX_WIDTH, rightEdge)
+          width = Math.max(CHAT_PANEL_FLOAT_MIN_WIDTH, Math.min(maxW, orig.width - dx))
+          x = rightEdge - width
+        }
+
+        // Vertical resize (only bottom edge directions)
+        if (dir === 's' || dir === 'se' || dir === 'sw') {
+          const maxH = Math.min(CHAT_PANEL_FLOAT_MAX_HEIGHT, window.innerHeight - orig.y)
+          height = Math.max(CHAT_PANEL_FLOAT_MIN_HEIGHT, Math.min(maxH, orig.height + dy))
+        }
+
+        panel.setFloatingRect({ x, y: orig.y, width, height })
       })
     }
     const stop = () => {
