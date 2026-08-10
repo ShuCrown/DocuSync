@@ -254,6 +254,15 @@ function ChatFloatingPill({ panel }: { panel: ChatPanelState }) {
         <Columns2 className="w-3.5 h-3.5" />
       </button>
 
+      {/* Collapse — hide floating window, show restore bubble */}
+      <button
+        onClick={panel.collapse}
+        className="p-1 rounded text-text-secondary hover:text-text hover:bg-surface-alt transition-colors"
+        title="收起"
+      >
+        <Minus className="w-3.5 h-3.5" />
+      </button>
+
       {/* Close: closes the floating window and the chat entirely */}
       <button
         onClick={panel.close}
