@@ -195,6 +195,11 @@ struct AiChatWindow {
     /// which the frontend maps to `panel.close()`. A programmatic close is
     /// already driven by the frontend and must not loop back into `close()`.
     internal_close: std::sync::atomic::AtomicBool,
+    /// True while the floating window is hidden because the app lost focus or
+    /// the main window was minimized. Tracks the last hide/show decision so the
+    /// event handler only acts on state changes instead of re-`show()`ing (and
+    /// re-stealing focus) on every focus event.
+    floating_hidden: std::sync::atomic::AtomicBool,
 }
 
 /// Create (or reuse) the standalone floating chat window.
@@ -225,7 +230,8 @@ async fn create_ai_chat_window(
 
     // First creation — build a new OS window. Bounds are screen-space logical
     // px, which is exactly what WebviewWindowBuilder::position/inner_size take.
-    let app_for_handler = app.clone();
+    // Window events are observed app-wide in `run()` via `on_window_event`
+    // (Tauri v2 has no per-builder event hook), filtered by the window label.
     let mut builder = tauri::webview::WebviewWindowBuilder::new(
         &app,
         AI_CHAT_WINDOW_LABEL,
@@ -235,15 +241,12 @@ async fn create_ai_chat_window(
     .position(bounds.x, bounds.y)
     .inner_size(bounds.width, bounds.height)
     .min_inner_size(FLOAT_WINDOW_MIN_W, FLOAT_WINDOW_MIN_H)
-    .resizable(true);
+    .resizable(true)
+    .always_on_top(true);
 
     if let Some(overlay) = &overlay {
         builder = builder.initialization_script(paper_overlay_script(overlay));
     }
-
-    builder = builder.on_window_event(move |event| {
-        handle_chat_window_event(&app_for_handler, event);
-    });
 
     let win = builder.build().map_err(|e| e.to_string())?;
     *guard = Some(win);
@@ -277,23 +280,24 @@ fn handle_chat_window_event(app: &tauri::AppHandle, event: &tauri::WindowEvent) 
     match event {
         tauri::WindowEvent::Moved(pos) => {
             if let Some(win) = app.get_webview_window(AI_CHAT_WINDOW_LABEL) {
-                let sf = win.scale_factor();
-                let size = win.inner_size();
-                let _ = app.emit(
-                    "ai-chat-window-bounds",
-                    Bounds {
-                        x: pos.x as f64 / sf,
-                        y: pos.y as f64 / sf,
-                        width: size.width as f64 / sf,
-                        height: size.height as f64 / sf,
-                    },
-                );
+                // scale_factor()/inner_size() are fallible in Tauri v2; skip the
+                // bounds report if either fails (nothing useful to convert).
+                if let (Ok(sf), Ok(size)) = (win.scale_factor(), win.inner_size()) {
+                    let _ = app.emit(
+                        "ai-chat-window-bounds",
+                        Bounds {
+                            x: pos.x as f64 / sf,
+                            y: pos.y as f64 / sf,
+                            width: size.width as f64 / sf,
+                            height: size.height as f64 / sf,
+                        },
+                    );
+                }
             }
         }
         tauri::WindowEvent::Resized(size) => {
             if let Some(win) = app.get_webview_window(AI_CHAT_WINDOW_LABEL) {
-                let sf = win.scale_factor();
-                if let Ok(pos) = win.outer_position() {
+                if let (Ok(sf), Ok(pos)) = (win.scale_factor(), win.outer_position()) {
                     let _ = app.emit(
                         "ai-chat-window-bounds",
                         Bounds {
@@ -345,6 +349,42 @@ fn get_window_insets(window: tauri::Window) -> Result<WindowInsets, String> {
     })
 }
 
+/// Hide/show the always-on-top floating chat window based on the app's
+/// foreground state.
+///
+/// - **Hide** when the app is no longer the active application (the user
+///   switched to another app) or the main document window is minimized.
+/// - **Show** when the app becomes active again and the main window is
+///   restored, using `orderFront` (no key steal) so returning via the document
+///   window keeps the document interactive.
+///
+/// Edge-triggered via `AiChatWindow::floating_hidden`, so redundant calls never
+/// run. `orderFront` (not `show()`, which is `makeKeyAndOrderFront` on macOS)
+/// prevents stealing key focus from the document window — the cause of the
+/// earlier flicker and of clicks on the document behind not registering.
+fn update_floating_visibility(app: &tauri::AppHandle) {
+    let Some(fw) = app.get_webview_window(AI_CHAT_WINDOW_LABEL) else {
+        return;
+    };
+    let Some(main) = app.get_window("main") else {
+        return;
+    };
+    let should_hide = !platform::app_is_active() || platform::main_window_minimized(&main);
+    let state = app.state::<AiChatWindow>();
+    let prev = state
+        .floating_hidden
+        .swap(should_hide, std::sync::atomic::Ordering::SeqCst);
+    if should_hide {
+        if !prev {
+            let _ = fw.hide();
+        }
+    } else if prev {
+        if let Some(w) = app.get_window(AI_CHAT_WINDOW_LABEL) {
+            platform::show_window_without_focus(&w);
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -357,6 +397,19 @@ pub fn run() {
         .manage(AiChatWindow {
             win: std::sync::Mutex::new(None),
             internal_close: std::sync::atomic::AtomicBool::new(false),
+            floating_hidden: std::sync::atomic::AtomicBool::new(false),
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Focused(_) = event {
+                // App focus changed (any window gained or lost focus): hide the
+                // always-on-top floating window when the app deactivates or the
+                // main window minimizes; show it when the app is active again.
+                update_floating_visibility(window.app_handle());
+                return;
+            }
+            if window.label() == AI_CHAT_WINDOW_LABEL {
+                handle_chat_window_event(window.app_handle(), event);
+            }
         })
         .invoke_handler(tauri::generate_handler![
             create_ai_chat_webview,

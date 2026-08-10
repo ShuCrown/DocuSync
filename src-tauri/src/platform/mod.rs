@@ -25,3 +25,24 @@ pub use macos::content_layout_top;
 pub use windows::content_layout_top;
 #[cfg(target_os = "linux")]
 pub use linux::content_layout_top;
+
+#[cfg(target_os = "macos")]
+pub use macos::app_is_active;
+#[cfg(target_os = "windows")]
+pub use windows::app_is_active;
+#[cfg(target_os = "linux")]
+pub use linux::app_is_active;
+
+#[cfg(target_os = "macos")]
+pub use macos::main_window_minimized;
+#[cfg(target_os = "windows")]
+pub use windows::main_window_minimized;
+#[cfg(target_os = "linux")]
+pub use linux::main_window_minimized;
+
+#[cfg(target_os = "macos")]
+pub use macos::show_window_without_focus;
+#[cfg(target_os = "windows")]
+pub use windows::show_window_without_focus;
+#[cfg(target_os = "linux")]
+pub use linux::show_window_without_focus;

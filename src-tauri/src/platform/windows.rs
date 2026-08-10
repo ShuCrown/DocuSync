@@ -10,3 +10,24 @@
 pub fn content_layout_top(_window: &tauri::Window) -> Result<f64, String> {
     Ok(0.0)
 }
+
+/// Whether the app is currently the active application.
+///
+/// Not yet implemented on Windows — returns `true` so the floating chat window
+/// keeps its current always-on-top behavior (no auto-hide when switching apps).
+pub fn app_is_active() -> bool {
+    true
+}
+
+/// Whether `window` is currently minimized. Fallback on Windows: minimize
+/// deactivates the app, which `app_is_active()` already reflects, so this
+/// stays `false` and the app-active check covers it.
+pub fn main_window_minimized(_window: &tauri::Window) -> bool {
+    false
+}
+
+/// Show `window` without stealing focus. Fallback on Windows: plain `show()`
+/// (may take focus; acceptable until a native implementation exists).
+pub fn show_window_without_focus(window: &tauri::Window) {
+    let _ = window.show();
+}

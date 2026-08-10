@@ -16,7 +16,7 @@
 //! the whole "magic +24/+36" class of bugs. Changes to stage-manager / notch /
 //! toolbar / traffic-light handling belong in this file only.
 
-use objc2::msg_send;
+use objc2::{class, msg_send};
 use objc2::runtime::AnyObject;
 use objc2_foundation::NSRect;
 use std::sync::mpsc;
@@ -48,4 +48,43 @@ pub fn content_layout_top(window: &tauri::Window) -> Result<f64, String> {
         .map_err(|e| format!("failed to schedule main-thread query: {e}"))?;
 
     rx.recv().map_err(|e| format!("main-thread query failed: {e}"))
+}
+
+/// Whether the DocuSync app is currently the active application.
+///
+/// Mirrors `[NSApplication isActive]`. Must be called on the main thread —
+/// window-event handlers already are. When the user switches to another app,
+/// this flips to false and the floating chat window hides.
+pub fn app_is_active() -> bool {
+    unsafe {
+        let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        let active: bool = msg_send![app, isActive];
+        active
+    }
+}
+
+/// Whether `window` is currently minimized (miniaturized) to the Dock.
+///
+/// Must be read on the main thread; window-event handlers already are.
+pub fn main_window_minimized(window: &tauri::Window) -> bool {
+    let Ok(ns_window) = window.ns_window() else { return false };
+    let ns_window = ns_window as *mut AnyObject;
+    unsafe {
+        let is_mini: bool = msg_send![ns_window, isMiniaturized];
+        is_mini
+    }
+}
+
+/// Show `window` without making it key.
+///
+/// tao's `show()` maps to `makeKeyAndOrderFront`, which would steal keyboard
+/// focus from the document window the user just clicked to return to the app.
+/// `orderFront:` displays the window at the front of its level without keying
+/// it, so the document stays interactive.
+pub fn show_window_without_focus(window: &tauri::Window) {
+    let Ok(ns_window) = window.ns_window() else { return };
+    let ns_window = ns_window as *mut AnyObject;
+    unsafe {
+        let _: () = msg_send![ns_window, orderFront: std::ptr::null_mut::<AnyObject>()];
+    }
 }
