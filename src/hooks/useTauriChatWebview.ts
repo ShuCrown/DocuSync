@@ -45,9 +45,9 @@ export interface PaperOverlay {
 let paperOverlay: PaperOverlay | null | undefined
 
 /**
- * Paper-color overlay for the AI chat webview, resolved once (single theme).
- * Shared by the in-main-window child webview (split mode) and the standalone
- * floating OS window — both tint the remote AI page the same way.
+ * Paper-color overlay for the AI chat webviews, resolved once (single theme).
+ * Shared by the in-main-window child webviews (split mode) and the standalone
+ * floating OS windows — both tint the remote AI page the same way.
  */
 export function getPaperOverlay(): PaperOverlay | null {
   if (paperOverlay !== undefined) return paperOverlay
@@ -81,18 +81,19 @@ function boundsEqual(a: Bounds, b: Bounds, eps = 0.5): boolean {
 }
 
 /**
- * Sync the AI chat child webview bounds with a React placeholder element.
- * In Tauri, the actual webview is a native child view positioned over the
- * placeholder; in the browser we fall back to a normal iframe.
+ * Keep ONE AI chat child webview (`label`) in sync with its React placeholder
+ * element. Each chat panel instance owns its own webview, labelled
+ * `ai-chat-{panelId}`, created lazily when its URL is set.
  */
-export function useTauriChatWebview(
-  panel: ChatPanelState,
+function useChatWebview(
+  mode: ChatPanelState['mode'],
+  url: string | null,
+  label: string,
   contentRef: React.RefObject<HTMLElement | null>,
 ) {
   const appliedRef = useRef<Bounds | null>(null)
   const urlRef = useRef<string | null>(null)
   const rafRef = useRef<number>(0)
-  const pendingRef = useRef<Bounds | null>(null)
   const hiddenRef = useRef(false)
 
   const apply = useCallback(async () => {
@@ -106,7 +107,6 @@ export function useTauriChatWebview(
     // view; shift by the native titlebar inset (0 on Windows/Linux) so the
     // webview stays glued to its placeholder. Cached after the first call.
     bounds.y += (await getWindowInsets()).top
-    const url = panel.currentUrl
 
     // Nothing to show.
     if (!url) return
@@ -123,24 +123,24 @@ export function useTauriChatWebview(
     try {
       if (urlRef.current !== url) {
         await invoke('create_ai_chat_webview', {
+          label,
           url,
           bounds,
           overlay: getPaperOverlay(),
         })
         hiddenRef.current = false
       } else if (hiddenRef.current) {
-        await invoke('show_ai_chat_webview', { bounds })
+        await invoke('show_ai_chat_webview', { label, bounds })
         hiddenRef.current = false
       } else {
-        await invoke('update_ai_chat_webview', { bounds })
+        await invoke('update_ai_chat_webview', { label, bounds })
       }
       urlRef.current = url
       appliedRef.current = bounds
-      pendingRef.current = null
     } catch (err) {
-      console.error('[useTauriChatWebview] failed to sync webview:', err)
+      console.error(`[useTauriChatWebview] failed to sync webview (${label}):`, err)
     }
-  }, [panel.currentUrl, contentRef])
+  }, [url, label, contentRef])
 
   const schedule = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current)
@@ -154,39 +154,53 @@ export function useTauriChatWebview(
     if (!isTauri()) return
 
     // Fully closed — destroy the webview, clear all state.
-    if (panel.mode === 'closed') {
+    if (mode === 'closed') {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
       appliedRef.current = null
       urlRef.current = null
       hiddenRef.current = false
-      invoke('close_ai_chat_webview').catch(() => {})
+      invoke('close_ai_chat_webview', { label }).catch(() => {})
       return
     }
 
     // Collapsed — move webview offscreen without destroying it so page state survives.
     // Clear appliedRef so the restore path doesn't skip the reposition call.
-    if (panel.mode === 'collapsed') {
+    if (mode === 'collapsed') {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
       hiddenRef.current = true
       appliedRef.current = null
-      invoke('hide_ai_chat_webview').catch(() => {})
+      invoke('hide_ai_chat_webview', { label }).catch(() => {})
       return
     }
 
-    // Floating (Tauri) — handled by the standalone OS window
-    // (useTauriChatWindow), not a child webview. Tear down any child webview
-    // so the two views never coexist. The split↔floating transition recreates
+    // Floating (Tauri) — handled by a standalone OS window
+    // (useTauriChatWindow), not child webviews. Tear down any child webview so
+    // the two views never coexist. The split↔floating transition recreates
     // the webview, so conversation state is lost on that switch (by design).
-    if (panel.mode === 'floating') {
+    if (mode === 'floating') {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
       appliedRef.current = null
       urlRef.current = null
       hiddenRef.current = false
-      invoke('close_ai_chat_webview').catch(() => {})
+      invoke('close_ai_chat_webview', { label }).catch(() => {})
       return
     }
 
-    // Split mode — panel is visible, sync bounds now and on resize/layout changes.
+    // Column has no URL (panel closed the service): tear down any lingering
+    // webview so it cannot float over the panel.
+    if (!url) {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      if (urlRef.current !== null) {
+        urlRef.current = null
+        appliedRef.current = null
+        hiddenRef.current = false
+        invoke('close_ai_chat_webview', { label }).catch(() => {})
+      }
+      return
+    }
+
+    // Split / browser-floating — panel is visible, sync bounds now and on
+    // resize/layout changes.
     schedule()
 
     const onResize = () => schedule()
@@ -203,7 +217,7 @@ export function useTauriChatWebview(
       ro?.disconnect()
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
     }
-  }, [panel.mode, panel.splitWidth, panel.floatingRect, panel.currentUrl, schedule, contentRef])
+  }, [mode, url, label, schedule, contentRef])
 
   // Close the webview when the component unmounts.
   useEffect(() => {
@@ -212,7 +226,20 @@ export function useTauriChatWebview(
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
       appliedRef.current = null
       urlRef.current = null
-      invoke('close_ai_chat_webview').catch(() => {})
+      invoke('close_ai_chat_webview', { label }).catch(() => {})
     }
-  }, [])
+  }, [label])
+}
+
+/**
+ * Sync ONE AI chat child webview per panel instance with its React placeholder
+ * element. The label (`ai-chat-{panel.id}`) keeps every panel's webview
+ * independent in the native layer, so multiple chats can coexist (several
+ * docked panes + floating windows).
+ */
+export function useTauriChatWebview(
+  panel: ChatPanelState,
+  contentRef: React.RefObject<HTMLElement | null>,
+) {
+  useChatWebview(panel.mode, panel.currentUrl, `ai-chat-${panel.id}`, contentRef)
 }

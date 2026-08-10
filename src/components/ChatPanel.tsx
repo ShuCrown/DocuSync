@@ -8,8 +8,6 @@ import {
 } from 'lucide-react'
 import {
   type ChatPanelState,
-  CHAT_PANEL_SPLIT_MIN,
-  CHAT_PANEL_SPLIT_MAX,
   CHAT_PANEL_FLOAT_MIN_WIDTH,
   CHAT_PANEL_FLOAT_MIN_HEIGHT,
   CHAT_PANEL_FLOAT_MAX_WIDTH,
@@ -21,6 +19,25 @@ import { isTauri } from '../utils/tauri'
 
 interface ChatPanelProps {
   panel: ChatPanelState
+  /** Stacking index for the floating control pill (multi-window support). */
+  floatingPillIndex?: number
+  /**
+   * Right offset (px) for the floating control pill. When a split panel is
+   * docked, its native child webview draws OVER the React DOM, so a pill at
+   * the default right edge would be hidden behind it — shift the pill left of
+   * the docked panel instead.
+   */
+  floatingPillRight?: number
+  /**
+   * Dock rect for a split-mode panel, computed by App from the panel's
+   * `dockRatio` (multiple docked panels stack like document split panes).
+   * Vertical direction uses dockTop/dockHeight; horizontal uses
+   * dockLeft/dockWidth.
+   */
+  dockTop?: number
+  dockHeight?: number
+  dockLeft?: number
+  dockWidth?: number
 }
 
 /**
@@ -31,6 +48,10 @@ interface ChatPanelProps {
  *   DeepSeek, Qianwen and other AI services set CSP `frame-ancestors` headers
  *   that forbid iframe embedding. A Tauri child webview is a top-level view
  *   inside the main window and is not subject to that restriction.
+ *
+ * One panel instance per AI service (see useChatPanel): opening a different
+ * service spawns another ChatPanel, so multiple chats can be compared side by
+ * side as separate windows.
  *
  *   - split mode: docked on the right with a draggable left-edge divider that
  *     resizes `panel.splitWidth`. Uses an in-main-window child webview.
@@ -47,23 +68,42 @@ interface ChatPanelProps {
  * (hide + show restore bubble), close (fully hide), and open-in-new-tab.
  * In browser builds we fall back to a normal iframe.
  */
-export function ChatPanel({ panel }: ChatPanelProps) {
+export function ChatPanel({
+  panel,
+  floatingPillIndex = 0,
+  floatingPillRight,
+  dockTop,
+  dockHeight,
+  dockLeft,
+  dockWidth,
+}: ChatPanelProps) {
   const isFloating = panel.mode === 'floating'
   const isCollapsed = panel.mode === 'collapsed'
   // Tauri floating mode uses a standalone OS window instead of an in-page
   // overlay; only the browser still renders the full floating overlay.
   const isTauriFloating = isTauri() && isFloating
   const contentRef = useRef<HTMLDivElement | null>(null)
-  const startDividerDrag = useDividerDrag(panel)
   const startHeaderDrag = useHeaderDrag(panel)
   const startResize = useResizeDrag(panel)
 
   useTauriChatWebview(panel, contentRef)
   useTauriChatWindow(panel)
 
-  // Collapsed: keep mounted but invisible so the native webview survives.
+  // Collapsed: keep mounted but invisible so the native webview (or iframe in
+  // the browser) preserves its page state.
   if (isCollapsed) {
-    return <div style={{ display: 'none' }} ref={contentRef} />
+    return (
+      <div style={{ display: 'none' }} ref={contentRef}>
+        {!isTauri() && panel.currentUrl && (
+          <iframe
+            src={panel.currentUrl}
+            title={panel.currentTitle ?? 'AI Chat'}
+            className="w-full h-full border-0"
+            allow="clipboard-read; clipboard-write; popup; popups-to-escape-sandbox"
+          />
+        )}
+      </div>
+    )
   }
 
   // Tauri floating mode: the chat lives in a standalone OS window managed by
@@ -72,7 +112,7 @@ export function ChatPanel({ panel }: ChatPanelProps) {
   // having to focus the floating window. The pill is plain React and can call
   // panel actions directly — no remote-page IPC needed.
   if (isTauriFloating) {
-    return <ChatFloatingPill panel={panel} />
+    return <ChatFloatingPill panel={panel} index={floatingPillIndex} right={floatingPillRight} />
   }
 
   // All modes use fixed positioning so the component never moves between
@@ -87,7 +127,6 @@ export function ChatPanel({ panel }: ChatPanelProps) {
   // background as the paper color (bg-surface) so the frame blends with the
   // tinted webview content instead of a white rectangle.
   const containerClass = 'fixed z-[9998] flex flex-col bg-surface-card overflow-hidden border border-border/60 rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.08)]'
-    + (!isFloating ? ' border-l-2 border-l-border' : '')
 
   const containerStyle = isFloating
     ? {
@@ -96,12 +135,19 @@ export function ChatPanel({ panel }: ChatPanelProps) {
         width: panel.floatingRect.width,
         height: panel.floatingRect.height,
       }
-    : {
-        right: 6,
-        top: 6, // aligned with the main floating panel's padding
-        width: panel.splitWidth,
-        bottom: 6,
-      }
+    : panel.dockDirection === 'horizontal'
+      ? {
+          left: dockLeft ?? 6,
+          top: 6,
+          width: dockWidth ?? (typeof window !== 'undefined' ? window.innerWidth - 12 : 0),
+          bottom: 6,
+        }
+      : {
+          right: 6,
+          top: dockTop ?? 6,
+          width: panel.splitWidth,
+          height: dockHeight ?? (typeof window !== 'undefined' ? window.innerHeight - 12 : 0),
+        }
 
   return (
     <div className={containerClass} style={containerStyle}>
@@ -112,7 +158,10 @@ export function ChatPanel({ panel }: ChatPanelProps) {
           isFloating ? 'cursor-move select-none' : ''
         }`}
       >
-        <span className="text-xs font-medium text-text truncate flex-1 min-w-0" title={panel.currentTitle ?? 'AI Chat'}>
+        <span
+          className="text-xs font-medium text-text truncate flex-1 min-w-0"
+          title={panel.currentTitle ?? 'AI Chat'}
+        >
           {panel.currentTitle ?? 'AI Chat'}
         </span>
 
@@ -148,47 +197,34 @@ export function ChatPanel({ panel }: ChatPanelProps) {
       </div>
 
       {/* Body — a placeholder element whose bounds are mirrored to the native
-          child webview. The divider strip sits to the left in split mode so it
-          remains reachable (the webview would otherwise swallow it). */}
-      <div className="flex-1 min-h-0 flex flex-row">
-        {!isFloating && (
-          <div
-            onMouseDown={startDividerDrag}
-            className="w-1.5 shrink-0 cursor-col-resize flex items-center justify-center group"
-            title="拖拽调整聊天宽度"
-          >
-            <div className="w-px h-full bg-border/60 group-hover:bg-primary/40 transition-colors" />
-          </div>
-        )}
-        {/* bg-surface (paper color): the strip exposed around the inset
-            native webview doubles as the rounded-corner frame — it must
-            blend with the tinted webview content, not a white rectangle. */}
-        <div ref={contentRef} className="flex-1 min-w-0 bg-surface relative">
-          {isTauri() ? (
-            panel.currentUrl ? (
-              // The native webview draws over this area. Keep a subtle background
-              // so the panel does not flash transparent while Tauri creates it.
-              <div className="absolute inset-0 bg-surface" />
-            ) : (
-              <div className="flex items-center justify-center h-full text-sm text-text-secondary">
-                未选择 AI 服务
-              </div>
-            )
-          ) : panel.currentUrl ? (
-            <div className="p-3 w-full h-full">
-              <iframe
-                src={panel.currentUrl}
-                title={panel.currentTitle ?? 'AI Chat'}
-                className="w-full h-full border-0 rounded-lg"
-                allow="clipboard-read; clipboard-write; popup; popups-to-escape-sandbox"
-              />
-            </div>
+          child webview. The width divider between the document area and this
+          panel lives OUTSIDE, as a fixed strip rendered by App (see
+          chatSplitWidth / handleChatWidthDrag). */}
+      <div ref={contentRef} className="flex-1 min-w-0 bg-surface relative">
+        {isTauri() ? (
+          panel.currentUrl ? (
+            // The native webview draws over this area. Keep a subtle background
+            // so the panel does not flash transparent while Tauri creates it.
+            <div className="absolute inset-0 bg-surface" />
           ) : (
             <div className="flex items-center justify-center h-full text-sm text-text-secondary">
               未选择 AI 服务
             </div>
-          )}
-        </div>
+          )
+        ) : panel.currentUrl ? (
+          <div className="p-3 w-full h-full">
+            <iframe
+              src={panel.currentUrl}
+              title={panel.currentTitle ?? 'AI Chat'}
+              className="w-full h-full border-0 rounded-lg"
+              allow="clipboard-read; clipboard-write; popup; popups-to-escape-sandbox"
+            />
+          </div>
+        ) : (
+          <div className="flex items-center justify-center h-full text-sm text-text-secondary">
+            未选择 AI 服务
+          </div>
+        )}
       </div>
 
       {/* Resize handles — floating mode only.
@@ -211,13 +247,25 @@ export function ChatPanel({ panel }: ChatPanelProps) {
 
 /**
  * Restore bubble shown when the panel is collapsed. One click returns the panel
- * to its last layout mode (split or floating).
+ * to its last layout mode (split or floating). Multiple collapsed panels stack
+ * their bubbles along the bottom-right corner. When a split panel is docked,
+ * pass `right` so the bubbles stay left of its native webview (which draws
+ * over the React DOM).
  */
-export function ChatRestoreBubble({ onClick }: { onClick: () => void }) {
+export function ChatRestoreBubble({
+  onClick,
+  index = 0,
+  right,
+}: {
+  onClick: () => void
+  index?: number
+  right?: number
+}) {
   return (
     <button
       onClick={onClick}
-      className="fixed bottom-4 right-4 w-11 h-11 rounded-xl bg-surface-card text-primary border border-border/60 shadow-[0_4px_24px_rgba(0,0,0,0.08)] flex items-center justify-center hover:bg-surface-alt/50 hover:scale-105 transition-all z-[9999]"
+      className="fixed w-11 h-11 rounded-xl bg-surface-card text-primary border border-border/60 shadow-[0_4px_24px_rgba(0,0,0,0.08)] flex items-center justify-center hover:bg-surface-alt/50 hover:scale-105 transition-all z-[9999]"
+      style={{ bottom: 16 + index * 52, right: right ?? 16 }}
       title="恢复 AI Chat"
     >
       <MessageSquare className="w-4.5 h-4.5" />
@@ -234,9 +282,20 @@ export function ChatRestoreBubble({ onClick }: { onClick: () => void }) {
  * window. Native window close is also wired to `panel.close()` via Rust's
  * `ai-chat-window-closed` event (see useTauriChatWindow).
  */
-function ChatFloatingPill({ panel }: { panel: ChatPanelState }) {
+function ChatFloatingPill({
+  panel,
+  index = 0,
+  right,
+}: {
+  panel: ChatPanelState
+  index?: number
+  right?: number
+}) {
   return (
-    <div className="fixed top-3 right-3 z-[9998] flex items-center gap-1.5 pl-2.5 pr-1 h-9 rounded-xl bg-surface-card border border-border/60 shadow-[0_4px_24px_rgba(0,0,0,0.08)]">
+    <div
+      className="fixed z-[9998] flex items-center gap-1.5 pl-2.5 pr-1 h-9 rounded-xl bg-surface-card border border-border/60 shadow-[0_4px_24px_rgba(0,0,0,0.08)]"
+      style={{ top: 12 + index * 44, right: right ?? 12 }}
+    >
       <span
         className="text-xs font-medium text-text truncate max-w-[160px]"
         title={panel.currentTitle ?? 'AI Chat'}
@@ -264,36 +323,6 @@ function ChatFloatingPill({ panel }: { panel: ChatPanelState }) {
       </button>
     </div>
   )
-}
-
-// --- Split-mode divider drag: dragging left widens the chat pane ---
-
-function useDividerDrag(panel: ChatPanelState) {
-  return useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    const startX = e.clientX
-    const startWidth = panel.splitWidth
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-    let raf = 0
-    const onMove = (ev: MouseEvent) => {
-      if (raf) return
-      raf = requestAnimationFrame(() => {
-        raf = 0
-        // Dragging left (delta < 0) widens the right-side chat pane.
-        const next = startWidth + (startX - ev.clientX)
-        panel.setSplitWidth(Math.max(CHAT_PANEL_SPLIT_MIN, Math.min(CHAT_PANEL_SPLIT_MAX, next)))
-      })
-    }
-    const stop = () => {
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', stop)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', stop)
-  }, [panel])
 }
 
 // --- Floating-mode header drag: move the overlay within the viewport ---

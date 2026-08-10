@@ -43,3 +43,4 @@ docs/
 # Tauri build outputs
 src-tauri/target/
 src-tauri/gen/schemas/
+.workbuddy

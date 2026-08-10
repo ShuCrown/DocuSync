@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { Loader2, X } from 'lucide-react'
+import { Loader2, X, Columns2, Rows2 } from 'lucide-react'
 import { Layout } from './components/Layout'
 import { FileUpload } from './components/FileUpload'
 import { FileHistory } from './components/FileHistory'
@@ -48,6 +48,19 @@ export default function App() {
   const initialPaneAPos = useRef<{ x: number; y: number } | null>(null)
   const [pendingDuplicate, setPendingDuplicate] = useState<File | null>(null)
   const localMode = getStorageMode() === 'local'
+
+  // Live viewport size — drives the layout of docked chat panes.
+  const [viewportSize, setViewportSize] = useState(() => ({
+    width: typeof window !== 'undefined' ? window.innerWidth : 1200,
+    height: typeof window !== 'undefined' ? window.innerHeight : 800,
+  }))
+  useEffect(() => {
+    const onResize = () => setViewportSize({ width: window.innerWidth, height: window.innerHeight })
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  const viewportWidth = viewportSize.width
+  const viewportHeight = viewportSize.height
 
   useEffect(() => {
     paneBRef.current = paneB
@@ -377,7 +390,112 @@ export default function App() {
 
   return (
     <ChatPanelContainer>
-      {(openChat, panel) => (
+      {(openChat, panels, resizeDock) => {
+        const splitPanels = panels.filter((p) => p.mode === 'split')
+        const splitWidth = splitPanels[0]?.splitWidth
+        const dockedPillRight = splitWidth ? splitWidth + 24 : undefined
+        const collapsedPanels = panels.filter((p) => p.mode === 'collapsed')
+
+        // Dock layout: every split panel is visible at once, arranged either
+        // vertically (stacked, like document split panes) or horizontally
+        // (side by side). Shares come from `dockRatio`. Each divider gets its
+        // own 12px gap BETWEEN panels so it never overlaps a native webview
+        // (which would swallow its clicks).
+        const dockDirection = splitPanels[0]?.dockDirection ?? 'vertical'
+        const toggleDockDirection = splitPanels[0]?.toggleDockDirection
+        // Slim gap between docked panels. The direction-toggle pill overflows
+        // slightly on hover — the overflow lands on adjacent panels' DOM
+        // (header/edge), not on their native webviews, so it stays visible
+        // and clickable.
+        const DOCK_DIVIDER = 8
+        const dividerTotal = Math.max(0, splitPanels.length - 1) * DOCK_DIVIDER
+        // Vertical mode spans the viewport height; horizontal mode splits the
+        // docked sidebar column (splitWidth wide) itself.
+        const dockAvail = Math.max(
+          0,
+          (dockDirection === 'vertical' ? viewportHeight : splitWidth ?? 420) - 12 - dividerTotal,
+        )
+        const dockRects = new Map<string, { top: number; height: number }>()
+        const dockBoxes = new Map<string, { left: number; width: number }>()
+        if (dockDirection === 'vertical') {
+          let acc = 6
+          for (const p of splitPanels) {
+            const height = Math.max(0, p.dockRatio * dockAvail)
+            dockRects.set(p.id, { top: acc, height })
+            acc += height + DOCK_DIVIDER
+          }
+        } else {
+          // Horizontal panes live inside the docked sidebar column: left edge
+          // of that column is (viewportWidth - 6 - splitWidth).
+          const dockLeft0 = viewportWidth - 6 - (splitWidth ?? 420)
+          let acc = 0
+          for (const p of splitPanels) {
+            const width = Math.max(0, p.dockRatio * dockAvail)
+            dockBoxes.set(p.id, { left: dockLeft0 + acc, width })
+            acc += width + DOCK_DIVIDER
+          }
+        }
+
+        // Drag a divider between two adjacent docked panels to resize them.
+        const handleDockDividerDrag = (
+          e: React.MouseEvent,
+          topId: string,
+          bottomId: string,
+          startRatio: number,
+        ) => {
+          e.preventDefault()
+          const isVertical = dockDirection === 'vertical'
+          const startPos = isVertical ? e.clientY : e.clientX
+          document.body.style.cursor = isVertical ? 'row-resize' : 'col-resize'
+          document.body.style.userSelect = 'none'
+          let raf = 0
+          const onMove = (ev: MouseEvent) => {
+            if (raf) return
+            raf = requestAnimationFrame(() => {
+              raf = 0
+              const pos = isVertical ? ev.clientY : ev.clientX
+              const delta = (pos - startPos) / dockAvail
+              resizeDock(topId, bottomId, startRatio + delta)
+            })
+          }
+          const stop = () => {
+            document.removeEventListener('mousemove', onMove)
+            document.removeEventListener('mouseup', stop)
+            document.body.style.cursor = ''
+            document.body.style.userSelect = ''
+          }
+          document.addEventListener('mousemove', onMove)
+          document.addEventListener('mouseup', stop)
+        }
+
+        // Drag the divider between the document area and the docked chat
+        // panels to resize the chat width (drives the shared splitWidth).
+        const handleChatWidthDrag = (e: React.MouseEvent) => {
+          e.preventDefault()
+          const startX = e.clientX
+          const startWidth = splitWidth ?? 420
+          document.body.style.cursor = 'col-resize'
+          document.body.style.userSelect = 'none'
+          let raf = 0
+          const onMove = (ev: MouseEvent) => {
+            if (raf) return
+            raf = requestAnimationFrame(() => {
+              raf = 0
+              const next = startWidth + (startX - ev.clientX)
+              splitPanels[0]?.setSplitWidth(next)
+            })
+          }
+          const stop = () => {
+            document.removeEventListener('mousemove', onMove)
+            document.removeEventListener('mouseup', stop)
+            document.body.style.cursor = ''
+            document.body.style.userSelect = ''
+          }
+          document.addEventListener('mousemove', onMove)
+          document.addEventListener('mouseup', stop)
+        }
+
+        return (
         <Layout
           currentFileName={paneA?.file.name ?? uploadedFile?.file.name ?? null}
           onBack={handleClear}
@@ -391,21 +509,134 @@ export default function App() {
           splitMode={splitMode}
           onSplitToggle={handleSplitToggle}
           splitButtonRef={splitButtonRef}
-          chatSplitWidth={panel.mode === 'split' ? panel.splitWidth + 12 : undefined}
+          chatSplitWidth={splitWidth ? splitWidth + 14 : undefined}
         >
           {mainContent}
 
-          {/* Single ChatPanel instance — always mounted when not closed.
-              Uses fixed positioning for all modes; split mode reserves space
-              via marginRight on the main content above. */}
-          {panel.mode !== 'closed' && (
-            <ChatPanel panel={panel} />
+          {/* One ChatPanel per AI service — multiple panels coexist; docked
+              ones stack vertically and are ALL visible (like document split
+              panes), the rest float as their own windows/overlays. Uses fixed
+              positioning for all modes; split mode reserves space via
+              marginRight on the main content above. Floating control pills
+              are shifted left of the docked panel: its native child webview
+              draws over the React DOM, which would otherwise hide them. */}
+          {panels.map((p) => {
+            if (p.mode === 'closed') return null
+            const pillIndex = p.mode === 'floating'
+              ? Math.max(0, panels.filter((x) => x.mode === 'floating').findIndex((x) => x.id === p.id))
+              : 0
+            const isSplit = p.mode === 'split'
+            const dockRect = isSplit && dockDirection === 'vertical' ? dockRects.get(p.id) : undefined
+            const dockBox = isSplit && dockDirection === 'horizontal' ? dockBoxes.get(p.id) : undefined
+            return (
+              <ChatPanel
+                key={p.id}
+                panel={p}
+                floatingPillIndex={pillIndex}
+                floatingPillRight={dockedPillRight}
+                dockTop={dockRect?.top}
+                dockHeight={dockRect?.height}
+                dockLeft={dockBox?.left}
+                dockWidth={dockBox?.width}
+              />
+            )
+          })}
+
+          {/* Divider strips in the gaps BETWEEN docked panels — drag to resize.
+              Rendered after the panels (topmost DOM) and inside their own gap,
+              clear of every native webview, so they stay clickable. The
+              direction toggle lives on each divider (hover to reveal), exactly
+              like the document split pane divider. */}
+          {splitPanels.slice(0, -1).map((p, i) => {
+            const next = splitPanels[i + 1]
+            const dividerPill = (
+              <button
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={toggleDockDirection}
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 p-1 rounded-full bg-surface-card border border-border shadow-[0_2px_8px_rgba(0,0,0,0.12)] text-text-secondary hover:text-primary hover:bg-surface-alt transition-colors"
+                title={dockDirection === 'vertical' ? '切换为横向分栏' : '切换为纵向分栏'}
+              >
+                {dockDirection === 'vertical'
+                  ? <Columns2 className="w-3.5 h-3.5" />
+                  : <Rows2 className="w-3.5 h-3.5" />}
+              </button>
+            )
+            if (dockDirection === 'vertical') {
+              const rect = dockRects.get(p.id)
+              if (!rect) return null
+              return (
+                <div
+                  key={`dock-${p.id}`}
+                  onMouseDown={(e) => handleDockDividerDrag(e, p.id, next.id, p.dockRatio)}
+                  className="fixed z-[9998] group flex items-center justify-center cursor-row-resize"
+                  style={{
+                    right: 6,
+                    top: rect.top + rect.height,
+                    width: splitWidth ?? 420,
+                    height: DOCK_DIVIDER,
+                  }}
+                  title="拖拽调整面板大小"
+                >
+                  <div className="w-8 h-px bg-border/60 group-hover:bg-primary/50 transition-colors" />
+                  <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                    {dividerPill}
+                  </div>
+                </div>
+              )
+            }
+            const box = dockBoxes.get(p.id)
+            if (!box) return null
+            return (
+              <div
+                key={`dock-${p.id}`}
+                onMouseDown={(e) => handleDockDividerDrag(e, p.id, next.id, p.dockRatio)}
+                className="fixed z-[9998] group flex items-center justify-center cursor-col-resize"
+                style={{
+                  left: box.left + box.width,
+                  top: 6,
+                  width: DOCK_DIVIDER,
+                  height: viewportHeight - 12,
+                }}
+                title="拖拽调整面板大小"
+              >
+                <div className="w-px h-8 bg-border/60 group-hover:bg-primary/50 transition-colors" />
+                <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                  {dividerPill}
+                </div>
+              </div>
+            )
+          })}
+
+          {/* Divider between the document area and the docked chat panels —
+              a fixed strip in the gap between the two regions, styled like
+              the dock dividers (8px grip + hairline + hover highlight).
+              Dragging it resizes the chat width (splitWidth). */}
+          {splitWidth != null && splitPanels.length > 0 && (
+            <div
+              onMouseDown={handleChatWidthDrag}
+              className="fixed z-[9998] group flex items-center justify-center cursor-col-resize"
+              style={{
+                left: viewportWidth - 6 - splitWidth - 8,
+                top: 6,
+                width: 8,
+                bottom: 6,
+              }}
+              title="拖拽调整聊天宽度"
+            >
+              <div className="w-px h-8 rounded-full bg-border/60 group-hover:bg-primary/50 transition-colors" />
+            </div>
           )}
 
-          {/* Collapsed — restore bubble */}
-          {panel.mode === 'collapsed' && (
-            <ChatRestoreBubble onClick={panel.restore} />
-          )}
+          {/* Collapsed — restore bubbles (stacked, shifted clear of a docked
+              split panel's native webview) */}
+          {collapsedPanels.map((p, i) => (
+            <ChatRestoreBubble
+              key={p.id}
+              onClick={p.restore}
+              index={i}
+              right={dockedPillRight}
+            />
+          ))}
 
           {/* Download loading overlay */}
           {downloading && (
@@ -472,7 +703,8 @@ export default function App() {
             />
           )}
         </Layout>
-      )}
+        )
+      }}
     </ChatPanelContainer>
   )
 }

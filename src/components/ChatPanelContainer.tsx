@@ -2,18 +2,23 @@ import type { ReactNode } from 'react'
 import { useChatPanel, type ChatPanelState } from '../hooks/useChatPanel'
 
 interface ChatPanelContainerProps {
-  children: (openChat: (url: string, title: string) => void, panel: ChatPanelState) => ReactNode
+  children: (
+    openChat: (url: string, title: string) => void,
+    panels: ChatPanelState[],
+    resizeDock: (topId: string, bottomId: string, topRatio: number) => void,
+  ) => ReactNode
 }
 
 /**
- * Owns the single `useChatPanel` instance and exposes both the `openChat`
- * callback and the full panel state to its children via a render prop.
+ * Owns the `useChatPanel` instance (which manages MULTIPLE panel instances —
+ * one per AI service) and exposes the `openChat` callback, the full panel list
+ * and the dock-divider resizer to its children via a render prop.
  *
- * The panel itself (header + iframe) is rendered by App.tsx based on
- * `panel.mode`, so this container stays a thin state provider — no Tauri
- * coupling, works identically in browser and desktop builds.
+ * The panels themselves (header + iframe/webview) are rendered by App.tsx by
+ * mapping over the list, so this container stays a thin state provider — no
+ * Tauri coupling, works identically in browser and desktop builds.
  */
 export function ChatPanelContainer({ children }: ChatPanelContainerProps) {
-  const panel = useChatPanel()
-  return <>{children(panel.openChat, panel)}</>
+  const { openChat, panels, resizeDock } = useChatPanel()
+  return <>{children(openChat, panels, resizeDock)}</>
 }
