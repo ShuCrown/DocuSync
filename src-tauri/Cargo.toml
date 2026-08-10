@@ -1,6 +1,6 @@
 [package]
 name = "docusync-tauri"
-version = "0.0.24"
+version = "0.0.25"
 description = "DocuSync with DeepSeek Chat"
 authors = ["you"]
 edition = "2021"
