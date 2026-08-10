@@ -16,6 +16,8 @@ import {
 import { useTauriChatWebview } from '../hooks/useTauriChatWebview'
 import { useTauriChatWindow } from '../hooks/useTauriChatWindow'
 import { isTauri } from '../utils/tauri'
+import { ServiceIcon } from './SelectionToolbar'
+import type { AIService } from '../hooks/useAIServices'
 
 interface ChatPanelProps {
   panel: ChatPanelState
@@ -38,6 +40,20 @@ interface ChatPanelProps {
   dockHeight?: number
   dockLeft?: number
   dockWidth?: number
+  /**
+   * Base stacking index for the bottom-right restore bubble rendered while
+   * this floating window is minimized. App passes the number of collapsed
+   * restore bubbles so a minimized floating window's bubble stacks BELOW them
+   * (collapsed bubbles first, then minimized floating windows in pill order)
+   * instead of overlapping.
+   */
+  bubbleBaseIndex?: number
+  /**
+   * AI service hosted by this panel, resolved by App from `currentUrl`. When
+   * the floating window is minimized, the bottom-right restore bubble shows
+   * this service's icon so multiple minimized windows are distinguishable.
+   */
+  restoreService?: AIService
 }
 
 /**
@@ -76,6 +92,8 @@ export function ChatPanel({
   dockHeight,
   dockLeft,
   dockWidth,
+  bubbleBaseIndex = 0,
+  restoreService,
 }: ChatPanelProps) {
   const isFloating = panel.mode === 'floating'
   const isCollapsed = panel.mode === 'collapsed'
@@ -85,9 +103,9 @@ export function ChatPanel({
   const contentRef = useRef<HTMLDivElement | null>(null)
   const startHeaderDrag = useHeaderDrag(panel)
   const startResize = useResizeDrag(panel)
+  const { minimized, minimize, restore } = useTauriChatWindow(panel)
 
   useTauriChatWebview(panel, contentRef)
-  useTauriChatWindow(panel)
 
   // Collapsed: keep mounted but invisible so the native webview (or iframe in
   // the browser) preserves its page state.
@@ -107,12 +125,32 @@ export function ChatPanel({
   }
 
   // Tauri floating mode: the chat lives in a standalone OS window managed by
-  // useTauriChatWindow. Here we only render a compact control pill in the main
-  // window so the user can switch back to split or close the chat without
-  // having to focus the floating window. The pill is plain React and can call
-  // panel actions directly — no remote-page IPC needed.
+  // useTauriChatWindow. Here we render an in-main-window handle:
+  //   - window visible: a compact control pill (switch to split / minimize /
+  //     close) without having to focus the floating window.
+  //   - window minimized: like collapsed (side-bar) mode, a bottom-right
+  //     restore bubble — one click un-minimizes and focuses the window.
+  // The pill is plain React and can call panel actions directly — no
+  // remote-page IPC needed.
   if (isTauriFloating) {
-    return <ChatFloatingPill panel={panel} index={floatingPillIndex} right={floatingPillRight} />
+    if (minimized) {
+      return (
+        <ChatRestoreBubble
+          onClick={restore}
+          index={bubbleBaseIndex + floatingPillIndex}
+          right={floatingPillRight}
+          service={restoreService}
+        />
+      )
+    }
+    return (
+      <ChatFloatingPill
+        panel={panel}
+        index={floatingPillIndex}
+        right={floatingPillRight}
+        onMinimize={minimize}
+      />
+    )
   }
 
   // All modes use fixed positioning so the component never moves between
@@ -251,45 +289,62 @@ export function ChatPanel({
  * their bubbles along the bottom-right corner. When a split panel is docked,
  * pass `right` so the bubbles stay left of its native webview (which draws
  * over the React DOM).
+ *
+ * When `service` is provided the bubble shows that AI service's icon instead
+ * of the generic chat icon — so several collapsed/minimized panels are
+ * distinguishable at a glance (e.g. a DeepSeek bubble vs a Kimi bubble).
  */
 export function ChatRestoreBubble({
   onClick,
   index = 0,
   right,
+  service,
 }: {
   onClick: () => void
   index?: number
   right?: number
+  /** AI service whose icon is shown on the bubble; falls back to a generic
+   * chat icon when omitted. */
+  service?: AIService
 }) {
   return (
     <button
       onClick={onClick}
       className="fixed w-11 h-11 rounded-xl bg-surface-card text-primary border border-border/60 shadow-[0_4px_24px_rgba(0,0,0,0.08)] flex items-center justify-center hover:bg-surface-alt/50 hover:scale-105 transition-all z-[9999]"
       style={{ bottom: 16 + index * 52, right: right ?? 16 }}
-      title="恢复 AI Chat"
+      title={service ? `恢复 ${service.name}` : '恢复 AI Chat'}
     >
-      <MessageSquare className="w-4.5 h-4.5" />
+      {service ? (
+        <ServiceIcon service={service} className="w-5 h-5" />
+      ) : (
+        <MessageSquare className="w-4.5 h-4.5" />
+      )}
     </button>
   )
 }
 
 /**
  * Compact control pill rendered in the main window while the chat is detached
- * into a standalone floating OS window (Tauri floating mode). The floating
- * window itself is a native OS window with its own titlebar (move / resize /
- * minimize / close); this pill just gives the user an in-main-window handle to
- * switch back to split mode or close the chat without focusing the floating
- * window. Native window close is also wired to `panel.close()` via Rust's
+ * into a standalone floating OS window (Tauri floating mode) and that window
+ * is VISIBLE. The floating window itself is a native OS window with its own
+ * titlebar (move / resize / minimize / close); this pill gives the user an
+ * in-main-window handle to minimize ("收起"), switch back to split mode or
+ * close the chat without focusing the floating window. When the window is
+ * minimized the pill is replaced by a bottom-right restore bubble (see
+ * ChatPanel). Native window close is wired to `panel.close()` via Rust's
  * `ai-chat-window-closed` event (see useTauriChatWindow).
  */
 function ChatFloatingPill({
   panel,
   index = 0,
   right,
+  onMinimize,
 }: {
   panel: ChatPanelState
   index?: number
   right?: number
+  /** Minimize ("收起") the standalone floating window. */
+  onMinimize: () => void
 }) {
   return (
     <div
@@ -303,6 +358,15 @@ function ChatFloatingPill({
         {panel.currentTitle ?? 'AI Chat'}
       </span>
       <span className="text-[10px] text-text-secondary select-none">悬浮中</span>
+
+      {/* Minimize ("收起") the floating window */}
+      <button
+        onClick={onMinimize}
+        className="p-1 rounded text-text-secondary hover:text-text hover:bg-surface-alt transition-colors"
+        title="收起悬浮窗口"
+      >
+        <Minus className="w-3.5 h-3.5" />
+      </button>
 
       {/* Switch back to split (re-dock into the main window) */}
       <button

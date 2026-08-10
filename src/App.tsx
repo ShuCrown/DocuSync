@@ -19,6 +19,7 @@ import { useFileUpload } from './hooks/useFileUpload'
 import { useFileHistory } from './hooks/useFileHistory'
 import { useAccount } from './hooks/useAccount'
 import { useSplitView } from './hooks/useSplitView'
+import { useAIServices, type AIService } from './hooks/useAIServices'
 import { useScrollPosition, findScrollable } from './hooks/useScrollPosition'
 import { autoCheckForUpdate } from './hooks/useUpdater'
 import { getFileCategory, isSupported } from './utils/fileType'
@@ -28,10 +29,25 @@ import * as api from './lib/api'
 import type { FileRecord } from './hooks/useFileHistory'
 import type { UploadedFile } from './hooks/useFileUpload'
 
+/**
+ * Resolve the AI service hosting a chat panel by its `currentUrl`. Exact URL
+ * match first, then a containment match (covers services whose URL was edited
+ * after the panel was opened). Used to show the service's icon on collapsed /
+ * minimized restore bubbles so multiple panels are distinguishable.
+ */
+function findServiceByUrl(services: AIService[], url: string | null): AIService | undefined {
+  if (!url) return undefined
+  return (
+    services.find((s) => s.url === url) ??
+    services.find((s) => url.includes(s.url) || s.url.includes(url))
+  )
+}
+
 export default function App() {
   const { uploadedFile, error: uploadError, uploading, downloading, downloadProgress, handleFile, restoreFromRecord, clearFile } = useFileUpload()
   const { history, addHistory, removeHistory, clearHistory } = useFileHistory()
   const account = useAccount()
+  const { services } = useAIServices()
   const {
     mode: splitMode, direction: splitDirection, activePane,
     paneA, paneB, splitRatio,
@@ -534,6 +550,8 @@ export default function App() {
                 panel={p}
                 floatingPillIndex={pillIndex}
                 floatingPillRight={dockedPillRight}
+                bubbleBaseIndex={collapsedPanels.length}
+                restoreService={findServiceByUrl(services, p.currentUrl)}
                 dockTop={dockRect?.top}
                 dockHeight={dockRect?.height}
                 dockLeft={dockBox?.left}
@@ -628,13 +646,15 @@ export default function App() {
           )}
 
           {/* Collapsed — restore bubbles (stacked, shifted clear of a docked
-              split panel's native webview) */}
+              split panel's native webview). Each bubble shows the AI service's
+              icon so multiple collapsed chats are distinguishable. */}
           {collapsedPanels.map((p, i) => (
             <ChatRestoreBubble
               key={p.id}
               onClick={p.restore}
               index={i}
               right={dockedPillRight}
+              service={findServiceByUrl(services, p.currentUrl)}
             />
           ))}
 

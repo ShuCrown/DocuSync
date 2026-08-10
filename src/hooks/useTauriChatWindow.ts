@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
@@ -103,9 +103,25 @@ async function computeInitialBounds(id: string, rect: Bounds): Promise<Bounds> {
   }
 }
 
-export function useTauriChatWindow(panel: ChatPanelState) {
+/**
+ * Result of `useTauriChatWindow` — lets the floating-mode UI in the main
+ * window mirror the standalone window's real state and drive it. "收起"
+ * (collapse) HIDES the window entirely (screen + Dock/taskbar), leaving only
+ * the bottom-right restore bubble; "恢复" (restore) shows and focuses it.
+ */
+export interface FloatingWindowControls {
+  /** Whether the standalone floating window is collapsed (hidden). */
+  minimized: boolean
+  /** Collapse ("收起") — hide the standalone floating window. */
+  minimize: () => void
+  /** Restore ("恢复") a collapsed standalone floating window. */
+  restore: () => void
+}
+
+export function useTauriChatWindow(panel: ChatPanelState): FloatingWindowControls {
   const id = panel.id
   const label = windowLabelFor(id)
+  const [minimized, setMinimized] = useState(false)
   // Keep the latest `close` in a ref so the event listener (registered once)
   // never captures a stale closure. Updated in an effect (not during render)
   // per the react-hooks ref-during-render rule.
@@ -113,6 +129,20 @@ export function useTauriChatWindow(panel: ChatPanelState) {
   useEffect(() => {
     closeRef.current = panel.close
   }, [panel.close])
+
+  const minimize = useCallback(() => {
+    if (!isTauri()) return
+    invoke('hide_ai_chat_window', { label })
+      .then(() => setMinimized(true))
+      .catch((e) => console.error('[useTauriChatWindow] hide failed:', e))
+  }, [label])
+
+  const restore = useCallback(() => {
+    if (!isTauri()) return
+    invoke('show_ai_chat_window', { label })
+      .then(() => setMinimized(false))
+      .catch((e) => console.error('[useTauriChatWindow] show failed:', e))
+  }, [label])
 
   // Create / reuse / close the standalone window on mode or URL changes.
   useEffect(() => {
@@ -126,14 +156,20 @@ export function useTauriChatWindow(panel: ChatPanelState) {
       computeInitialBounds(id, rect)
         .then((bounds) => {
           if (cancelled) return
-          invoke('create_ai_chat_window', {
+          return invoke('create_ai_chat_window', {
             label,
             url,
             bounds,
             overlay: getPaperOverlay(),
-          }).catch((e) => console.error('[useTauriChatWindow] create failed:', e))
+          })
         })
-        .catch(() => {})
+        .then(() => {
+          // The window was just created (or reused via show()), so it is
+          // visible — never let a stale "已收起" state survive a
+          // split→floating round trip.
+          if (!cancelled) setMinimized(false)
+        })
+        .catch((e) => console.error('[useTauriChatWindow] create failed:', e))
       return () => {
         cancelled = true
       }
@@ -145,9 +181,10 @@ export function useTauriChatWindow(panel: ChatPanelState) {
     invoke('close_ai_chat_window', { label }).catch(() => {})
   }, [panel.mode, panel.currentUrl, panel.floatingRect, id, label])
 
-  // Persist native move/resize, and translate user-initiated close into
-  // `panel.close()`. Registered once for the component's lifetime; events
-  // carry the window label so only the matching panel reacts.
+  // Persist native move/resize, translate user-initiated close into
+  // `panel.close()`, and mirror the native minimize state. Registered once for
+  // the component's lifetime; events carry the window label so only the
+  // matching panel reacts.
   useEffect(() => {
     if (!isTauri()) return
     let unlistens: UnlistenFn[] = []
@@ -166,6 +203,9 @@ export function useTauriChatWindow(panel: ChatPanelState) {
       listen<{ label: string }>('ai-chat-window-closed', (e) => {
         if (e.payload.label === label) closeRef.current()
       }),
+      listen<{ label: string; minimized: boolean }>('ai-chat-window-minimized', (e) => {
+        if (e.payload.label === label) setMinimized(e.payload.minimized)
+      }),
     ])
       .then((fns) => {
         if (cancelled) {
@@ -180,4 +220,17 @@ export function useTauriChatWindow(panel: ChatPanelState) {
       unlistens.forEach((u) => u())
     }
   }, [id, label])
+
+  // Unmount safety net: closing the panel from the main-window pill removes
+  // the panel from React state and unmounts this component, but the standalone
+  // OS window is owned by Rust — without this, that window would linger on
+  // screen forever while the UI already shows the chat as closed.
+  useEffect(() => {
+    return () => {
+      if (!isTauri()) return
+      invoke('close_ai_chat_window', { label }).catch(() => {})
+    }
+  }, [label])
+
+  return { minimized, minimize, restore }
 }

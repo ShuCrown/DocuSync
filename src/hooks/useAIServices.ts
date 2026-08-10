@@ -14,6 +14,14 @@ export interface AIService {
 
 const STORAGE_KEY = 'docusync-ai-services'
 
+/**
+ * Broadcast name for "AI services changed" — dispatched after overrides are
+ * persisted. Multiple `useAIServices` instances can live in one app (e.g. the
+ * selection toolbar edits services while App reads them to render restore
+ * bubbles); each instance listens and reloads so its view stays fresh.
+ */
+const SERVICES_CHANGED_EVENT = 'docusync:ai-services-changed'
+
 const DEFAULT_SERVICES: AIService[] = [
   {
     id: 'deepseek',
@@ -126,10 +134,26 @@ function mergeServices(overrides: Record<string, Partial<AIService>>): AIService
 export function useAIServices() {
   const [overrides, setOverrides] = useState<Record<string, Partial<AIService>>>(loadOverrides)
 
-  // Sync to localStorage on change
+  // Sync to localStorage on change, and tell other instances to reload.
   useEffect(() => {
     saveOverrides(overrides)
+    window.dispatchEvent(new Event(SERVICES_CHANGED_EVENT))
   }, [overrides])
+
+  // Reload from localStorage when ANOTHER instance changes the services.
+  // Content is compared before updating so the triggering instance's own
+  // echo-back dispatch cannot create an update loop (same content → same
+  // reference → the sync effect above does not re-run).
+  useEffect(() => {
+    const onChange = () => {
+      const next = loadOverrides()
+      setOverrides((prev) =>
+        JSON.stringify(prev) === JSON.stringify(next) ? prev : next,
+      )
+    }
+    window.addEventListener(SERVICES_CHANGED_EVENT, onChange)
+    return () => window.removeEventListener(SERVICES_CHANGED_EVENT, onChange)
+  }, [])
 
   const services = mergeServices(overrides)
   const enabledServices = services.filter((s) => s.enabled)

@@ -935,7 +935,7 @@ dependencies = [
 
 [[package]]
 name = "docusync-tauri"
-version = "0.0.23"
+version = "0.0.25"
 dependencies = [
  "objc2",
  "objc2-foundation",

@@ -50,6 +50,15 @@ struct LabeledPayload {
     label: String,
 }
 
+/// Minimize-state payload — carries the window label plus whether that
+/// floating chat window is currently minimized (miniaturized), so the main
+/// window's control pill can reflect the real window state.
+#[derive(serde::Serialize, Clone, Debug)]
+struct MinimizedPayload {
+    label: String,
+    minimized: bool,
+}
+
 /// Handles to the AI chat child webviews, keyed by label (`ai-chat-a` for the
 /// main column, `ai-chat-b` for the comparison column).
 struct AiChatWebview(std::sync::Mutex<HashMap<String, Webview<Wry>>>);
@@ -228,6 +237,12 @@ struct AiChatWindowEntry {
     /// event handler only acts on state changes instead of re-`show()`ing (and
     /// re-stealing focus) on every focus event.
     floating_hidden: std::sync::atomic::AtomicBool,
+    /// Whether the user has collapsed (hidden) this floating window, or it was
+    /// system-minimized. Set directly by `hide_ai_chat_window`, cleared by
+    /// `show_ai_chat_window`, and updated by `sync_chat_window_minimized`.
+    /// `update_floating_visibility` skips collapsed windows so app
+    /// focus/minimize toggles never auto-show a window the user hid.
+    minimized: std::sync::atomic::AtomicBool,
 }
 
 /// Handles to the standalone floating chat windows, keyed by window label
@@ -257,6 +272,11 @@ async fn create_ai_chat_window(
     let mut guard = state.0.lock().unwrap();
     if let Some(entry) = guard.get(&label) {
         // Window already exists (AI service switched while floating): reuse it.
+        // Clearing the minimized flag makes auto hide/show apply again — the
+        // window is about to be shown, so a collapsed state is stale.
+        entry
+            .minimized
+            .store(false, std::sync::atomic::Ordering::SeqCst);
         entry.win.show().map_err(|e| e.to_string())?;
         entry.win.set_focus().map_err(|e| e.to_string())?;
         entry.win.navigate(url).map_err(|e| e.to_string())?;
@@ -290,6 +310,7 @@ async fn create_ai_chat_window(
             win,
             internal_close: std::sync::atomic::AtomicBool::new(false),
             floating_hidden: std::sync::atomic::AtomicBool::new(false),
+            minimized: std::sync::atomic::AtomicBool::new(false),
         },
     );
     Ok(())
@@ -311,6 +332,95 @@ async fn close_ai_chat_window(
         entry.win.close().map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// Hide (not minimize) the standalone floating chat window of one panel — the
+/// "收起" action from the main-window control pill. Hiding removes the window
+/// from the screen AND the Dock/taskbar, leaving only the bottom-right restore
+/// bubble in the main window; minimizing would keep a Dock entry around, which
+/// is not the intended "收起" behavior.
+///
+/// The flag is set directly here (no event round-trip) so
+/// `update_floating_visibility` never auto-shows a user-collapsed window, and
+/// the frontend flips its UI state in the command callback — no reliance on
+/// system events.
+#[tauri::command]
+async fn hide_ai_chat_window(
+    state: State<'_, AiChatWindow>,
+    label: String,
+) -> Result<(), String> {
+    let guard = state.0.lock().unwrap();
+    if let Some(entry) = guard.get(&label) {
+        entry
+            .minimized
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        entry.win.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Show a hidden (or system-minimized) standalone floating chat window — the
+/// "恢复" action from the main-window restore bubble. Un-minimizes if needed,
+/// then shows and focuses the window (the user explicitly asked for it, so
+/// taking focus is expected). Clears the minimized flag so focus-loss based
+/// auto-hide/show applies again.
+#[tauri::command]
+async fn show_ai_chat_window(
+    state: State<'_, AiChatWindow>,
+    label: String,
+) -> Result<(), String> {
+    let guard = state.0.lock().unwrap();
+    if let Some(entry) = guard.get(&label) {
+        if entry.win.is_minimized().unwrap_or(false) {
+            entry.win.unminimize().map_err(|e| e.to_string())?;
+        }
+        entry
+            .minimized
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        entry.win.show().map_err(|e| e.to_string())?;
+        entry.win.set_focus().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Edge-triggered minimize-state sync for one floating chat window: compare
+/// the window's actual minimized state against the last reported one. Called
+/// from `Resized` and `Focused` window events — both fire on macOS when the
+/// user miniaturizes a window.
+///
+/// Only the "now minimized" transition is broadcast: the pill disappears and a
+/// restore bubble appears, exactly like a user-initiated "收起". The "restored"
+/// side is deliberately NOT broadcast — `hide()` (user "收起") triggers a
+/// focus-loss event that would otherwise report `is_minimized() == false` and
+/// spuriously flip the UI back. Restores are driven by the frontend's
+/// `show_ai_chat_window` command callback instead.
+fn sync_chat_window_minimized(
+    app: &tauri::AppHandle,
+    label: &str,
+    win: &tauri::WebviewWindow<Wry>,
+) {
+    let Ok(minimized) = win.is_minimized() else {
+        return;
+    };
+    let state = app.state::<AiChatWindow>();
+    let guard = state.0.lock().unwrap();
+    let Some(entry) = guard.get(label) else {
+        return;
+    };
+    let prev = entry
+        .minimized
+        .swap(minimized, std::sync::atomic::Ordering::SeqCst);
+    if !minimized || prev == minimized {
+        return;
+    }
+    drop(guard);
+    let _ = app.emit(
+        "ai-chat-window-minimized",
+        MinimizedPayload {
+            label: label.to_string(),
+            minimized: true,
+        },
+    );
 }
 
 /// Window-event dispatcher for a standalone chat window (`label`).
@@ -350,6 +460,9 @@ fn handle_chat_window_event(
         }
         tauri::WindowEvent::Resized(size) => {
             if let Some(win) = app.get_webview_window(label) {
+                // Miniaturize/restore also surfaces as a resize on macOS —
+                // keep the pill's minimize state in sync from here too.
+                sync_chat_window_minimized(app, label, &win);
                 if let (Ok(sf), Ok(pos)) = (win.scale_factor(), win.outer_position()) {
                     let _ = app.emit(
                         "ai-chat-window-bounds",
@@ -416,6 +529,11 @@ fn get_window_insets(window: tauri::Window) -> Result<WindowInsets, String> {
 ///   restored, using `orderFront` (no key steal) so returning via the document
 ///   window keeps the document interactive.
 ///
+/// Windows the user collapsed ("收起", `minimized == true`) are SKIPPED
+/// entirely: the user explicitly hid them and expects them to stay hidden
+/// until they click the restore bubble — auto-showing them on app focus would
+/// fight the user's intent.
+///
 /// Edge-triggered via each entry's `floating_hidden`, so redundant calls never
 /// run. `orderFront` (not `show()`, which is `makeKeyAndOrderFront` on macOS)
 /// prevents stealing key focus from the document window — the cause of the
@@ -428,6 +546,11 @@ fn update_floating_visibility(app: &tauri::AppHandle) {
     let state = app.state::<AiChatWindow>();
     let guard = state.0.lock().unwrap();
     for (label, entry) in guard.iter() {
+        // User collapsed ("收起") or system-minimized this window — leave it
+        // exactly as the user left it; never auto-hide or auto-show it.
+        if entry.minimized.load(std::sync::atomic::Ordering::SeqCst) {
+            continue;
+        }
         let prev = entry
             .floating_hidden
             .swap(should_hide, std::sync::atomic::Ordering::SeqCst);
@@ -455,6 +578,15 @@ pub fn run() {
         .manage(AiChatWindow(std::sync::Mutex::new(HashMap::new())))
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Focused(_) = event {
+                // A floating window losing focus usually means it was
+                // miniaturized — sync its minimize state so the main-window
+                // pill reflects the real window state.
+                let label = window.label().to_string();
+                if label.starts_with(AI_CHAT_WINDOW_LABEL_PREFIX) {
+                    if let Some(win) = window.app_handle().get_webview_window(&label) {
+                        sync_chat_window_minimized(window.app_handle(), &label, &win);
+                    }
+                }
                 // App focus changed (any window gained or lost focus): hide the
                 // always-on-top floating windows when the app deactivates or the
                 // main window minimizes; show them when the app is active again.
@@ -474,6 +606,8 @@ pub fn run() {
             show_ai_chat_webview,
             create_ai_chat_window,
             close_ai_chat_window,
+            hide_ai_chat_window,
+            show_ai_chat_window,
             get_window_insets,
         ])
         .run(tauri::generate_context!())
