@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, Settings, Copy, ChevronDown, ChevronUp } from 'lucide-react'
+import { Settings } from 'lucide-react'
 import { useAIServices } from '../hooks/useAIServices'
 import { AISettingsPanel } from './AISettingsPanel'
 import type { AIService } from '../hooks/useAIServices'
@@ -40,21 +40,10 @@ interface Pos {
   placement: 'above' | 'below'
 }
 
-// --- Quick-action presets ---
-// Prepend a Chinese prompt prefix to the copied text so the user only needs
-// to paste into the third-party AI chat panel.
-
-const QUICK_ACTIONS = [
-  { id: 'explain', label: '解释', prefix: '请解释以下内容：\n\n' },
-  { id: 'translate', label: '翻译', prefix: '请将以下内容翻译为英文：\n\n' },
-  { id: 'summarize', label: '总结', prefix: '请用要点总结以下内容：\n\n' },
-  { id: 'rewrite', label: '改写', prefix: '请改写以下内容，使其更清晰流畅：\n\n' },
-] as const
-
 // Rough toolbar width estimate used for horizontal clamping. The actual
 // width varies with the number of enabled services, but clamping against
 // this estimate keeps the toolbar comfortably inside the viewport.
-const TOOLBAR_ESTIMATED_WIDTH = 280
+const TOOLBAR_ESTIMATED_WIDTH = 220
 const TOOLBAR_HEIGHT = 44
 const VIEWPORT_MARGIN = 8
 
@@ -64,9 +53,7 @@ export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, ti
   const { services, enabledServices, addService, removeService, moveService, toggleService, updateService, resetToDefaults } = useAIServices()
   const [text, setText] = useState('')
   const [pos, setPos] = useState<Pos | null>(null)
-  const [copied, setCopied] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [expanded, setExpanded] = useState(false)
   const toolbarRef = useRef<HTMLDivElement>(null)
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const selectTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -104,8 +91,6 @@ export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, ti
 
       setPos({ top, left, placement })
       setText(t)
-      setCopied(false)
-      setExpanded(false)
     }, 80)
   }, [])
 
@@ -128,7 +113,6 @@ export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, ti
         if (!sel || sel.isCollapsed || !sel.toString().trim()) {
           setPos(null)
           setText('')
-          setExpanded(false)
         }
       }, 150)
     }
@@ -144,17 +128,15 @@ export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, ti
         window.getSelection()?.removeAllRanges()
         setPos(null)
         setText('')
-        setExpanded(false)
       }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [pos, settingsOpen])
 
-  const copyToClipboard = async (content: string): Promise<boolean> => {
+  const copyToClipboard = async (content: string): Promise<void> => {
     try {
       await navigator.clipboard.writeText(content)
-      return true
     } catch {
       try {
         const ta = document.createElement('textarea')
@@ -165,22 +147,10 @@ export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, ti
         ta.select()
         document.execCommand('copy')
         document.body.removeChild(ta)
-        return true
       } catch {
-        return false
+        /* ignore — user can still open the AI panel and select manually */
       }
     }
-  }
-
-  const flashCopied = () => {
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
-  }
-
-  const handleCopyOnly = async () => {
-    if (!text) return
-    const ok = await copyToClipboard(text)
-    if (ok) flashCopied()
   }
 
   const openService = (service: AIService) => {
@@ -196,17 +166,14 @@ export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, ti
     }
   }
 
-  const handleServiceClick = async (service: AIService, prefix = '') => {
+  const handleServiceClick = async (service: AIService) => {
     if (!text) return
-    const content = prefix + text
-    await copyToClipboard(content)
-    flashCopied()
+    await copyToClipboard(text)
     openService(service)
 
     window.getSelection()?.removeAllRanges()
     setPos(null)
     setText('')
-    setExpanded(false)
   }
 
   if (!pos || !text) return null
@@ -238,117 +205,33 @@ export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, ti
         {/* When below the selection, the arrow sits on top pointing up. */}
         {pos.placement === 'below' && arrowEl}
 
-        <div className="flex flex-col gap-1 px-2 py-1.5 bg-surface-card rounded-lg shadow-[0_4px_16px_rgba(44,40,37,0.16)] border border-border/60">
-          <div className="flex items-center gap-1">
-            {/* AI services — primary action: copy + open chat */}
-            {enabledServices.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => handleServiceClick(s)}
-                className="flex items-center justify-center w-8 h-8 rounded-md hover:bg-surface-alt transition-colors"
-                title={`复制并打开 ${s.name}`}
-                aria-label={`复制并打开 ${s.name}`}
-              >
-                <ServiceIcon service={s} className="w-5 h-5" />
-              </button>
-            ))}
-
-            {enabledServices.length > 0 && (
-              <div className="w-px h-5 bg-border mx-0.5" />
-            )}
-
-            {/* Copy only — does not open AI */}
+        <div className="flex items-center gap-1 px-2 py-1.5 bg-surface-card rounded-lg shadow-[0_4px_16px_rgba(44,40,37,0.16)] border border-border/60">
+          {/* AI services — copy selection and open chat */}
+          {enabledServices.map((s) => (
             <button
-              onClick={handleCopyOnly}
-              className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-surface-alt transition-colors text-text-secondary hover:text-text"
-              title="仅复制所选文字"
-              aria-label="仅复制所选文字"
+              key={s.id}
+              onClick={() => handleServiceClick(s)}
+              className="flex items-center justify-center w-8 h-8 rounded-md hover:bg-surface-alt transition-colors"
+              title={`复制并打开 ${s.name}`}
+              aria-label={`复制并打开 ${s.name}`}
             >
-              {copied ? (
-                <Check className="w-3.5 h-3.5 text-success" />
-              ) : (
-                <Copy className="w-3.5 h-3.5" />
-              )}
+              <ServiceIcon service={s} className="w-5 h-5" />
             </button>
+          ))}
 
-            {/* Expand to quick actions (only meaningful if a service exists) */}
-            {enabledServices.length > 0 && (
-              <button
-                onClick={() => setExpanded((v) => !v)}
-                className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-surface-alt transition-colors text-text-secondary hover:text-text"
-                title={expanded ? '收起快捷操作' : '展开快捷操作：解释 / 翻译 / 总结 / 改写'}
-                aria-label={expanded ? '收起快捷操作' : '展开快捷操作'}
-                aria-expanded={expanded}
-              >
-                {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-              </button>
-            )}
-
+          {enabledServices.length > 0 && (
             <div className="w-px h-5 bg-border mx-0.5" />
-
-            {/* Settings */}
-            <button
-              onClick={() => setSettingsOpen(true)}
-              className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-surface-alt transition-colors text-text-secondary hover:text-text"
-              title="管理 AI 问答服务"
-              aria-label="管理 AI 问答服务"
-            >
-              <Settings className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {/* Quick actions row — uses the first enabled service with a prompt prefix */}
-          {expanded && (
-            <div className="flex flex-col gap-1.5 pt-1.5 border-t border-border/60">
-              <div className="flex items-center gap-1 flex-wrap">
-                {QUICK_ACTIONS.map((a) => {
-                  const svc = enabledServices[0]
-                  return (
-                    <button
-                      key={a.id}
-                      onClick={() => svc && handleServiceClick(svc, a.prefix)}
-                      disabled={!svc}
-                      className="px-2 py-1 text-[11px] text-text-secondary hover:text-text hover:bg-surface-alt rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                      title={svc ? `复制并打开 ${svc.name}（带"${a.label}"提示前缀）` : '请先启用一个 AI 服务'}
-                    >
-                      {a.label}
-                    </button>
-                  )
-                })}
-              </div>
-              {/* Selected text preview — helps the user confirm what AI will see */}
-              <p
-                className="text-[10px] text-text-secondary/80 leading-snug line-clamp-2 max-w-[260px]"
-                title={text}
-              >
-                {text}
-              </p>
-              {enabledServices[0] && (
-                <p className="text-[10px] text-text-secondary/60">
-                  默认使用 {enabledServices[0].name}，点上方图标可换服务
-                </p>
-              )}
-            </div>
           )}
 
-          {/* Status row (compact) */}
-          {!expanded && (
-            copied ? (
-              <div className="flex items-center gap-1 px-0.5">
-                <Check className="w-3 h-3 text-success" />
-                <span className="text-[10px] text-success whitespace-nowrap">已复制，去粘贴</span>
-              </div>
-            ) : (
-              <div className="px-0.5 max-w-[260px]">
-                <p className="text-[10px] text-text-secondary truncate" title={text}>
-                  {text.length > 24 ? `${text.slice(0, 24)}…` : text}
-                  {text.length > 24 && (
-                    <span className="text-text-secondary/60 ml-1">({text.length} 字)</span>
-                  )}
-                </p>
-              </div>
-            )
-          )}
+          {/* Settings */}
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-surface-alt transition-colors text-text-secondary hover:text-text"
+            title="管理 AI 问答服务"
+            aria-label="管理 AI 问答服务"
+          >
+            <Settings className="w-3.5 h-3.5" />
+          </button>
         </div>
 
         {/* When above the selection, the arrow sits below pointing down. */}
