@@ -1,5 +1,15 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { Loader2, X, Columns2, Rows2, ArrowLeftRight } from 'lucide-react'
+import {
+  Loader2,
+  X,
+  Columns2,
+  Rows2,
+  ArrowLeftRight,
+  PanelLeftOpen,
+  PanelRightClose,
+  MessageSquare,
+  FileText,
+} from 'lucide-react'
 import { Layout } from './components/Layout'
 import { FileUpload } from './components/FileUpload'
 import { FileHistory } from './components/FileHistory'
@@ -43,6 +53,23 @@ function findServiceByUrl(services: AIService[], url: string | null): AIService 
   )
 }
 
+// Collapse state for the docked chat sidebar, persisted across sessions so
+// the user's layout preference survives restarts.
+const LS_CHAT_COLLAPSED = 'docusync.layout.chatCollapsed'
+
+function readCollapsed(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === '1'
+  } catch {
+    return false
+  }
+}
+
+/** Shorten a file name for the document restore bubbles. */
+function truncateFileName(name: string, max = 10): string {
+  return name.length > max ? `${name.slice(0, max)}…` : name
+}
+
 export default function App() {
   const { uploadedFile, error: uploadError, uploading, downloading, downloadProgress, handleFile, restoreFromRecord, clearFile } = useFileUpload()
   const { history, addHistory, removeHistory, clearHistory } = useFileHistory()
@@ -50,10 +77,11 @@ export default function App() {
   const { services } = useAIServices()
   const {
     mode: splitMode, direction: splitDirection, activePane,
-    paneA, paneB, splitRatio,
+    paneA, paneB, splitRatio, hiddenPane,
     enterSplit, enterSplitPicker, exitSplit,
     closePaneA, closePaneB, swapPanes,
     setActivePane, toggleDirection, setSplitRatio, setPaneA, replacePaneB,
+    hidePane, showPane,
   } = useSplitView()
   const paneBRef = useRef(paneB)
   const [accountOpen, setAccountOpen] = useState(false)
@@ -64,6 +92,12 @@ export default function App() {
   const initialPaneAPos = useRef<{ x: number; y: number } | null>(null)
   const [pendingDuplicate, setPendingDuplicate] = useState<File | null>(null)
   const localMode = getStorageMode() === 'local'
+  // Docked chat sidebar collapsed / expanded (edge tab on the right restores it).
+  const [chatCollapsed, setChatCollapsed] = useState(() => readCollapsed(LS_CHAT_COLLAPSED))
+
+  useEffect(() => {
+    try { localStorage.setItem(LS_CHAT_COLLAPSED, chatCollapsed ? '1' : '0') } catch { /* ignore */ }
+  }, [chatCollapsed])
 
   // Live viewport size — drives the layout of docked chat panes.
   const [viewportSize, setViewportSize] = useState(() => ({
@@ -256,6 +290,7 @@ export default function App() {
         isActive={activePane === 'a'}
         onClose={handlePaneAClose}
         onFocus={handlePaneFocus}
+        onHide={() => hidePane('a')}
         onShare={!localMode && paneA?.docId ? () => handleShareOpen(paneA.docId!, paneA.file.name) : undefined}
       />
       <div ref={paneAScrollRef} className="flex-1 overflow-auto">
@@ -265,7 +300,7 @@ export default function App() {
         />
       </div>
     </div>
-  ), [paneA, activePane, handlePaneAClose, handlePaneFocus, paneAScrollRef, handleShareOpen, localMode])
+  ), [paneA, activePane, handlePaneAClose, handlePaneFocus, paneAScrollRef, handleShareOpen, localMode, hidePane])
 
   const paneBElement = useMemo(() => (
     <div className="h-full flex flex-col">
@@ -276,6 +311,7 @@ export default function App() {
         onClose={handlePaneBClose}
         onReplace={handleReplacePaneB}
         onFocus={handlePaneFocus}
+        onHide={() => hidePane('b')}
         onShare={!localMode && paneB?.docId ? () => handleShareOpen(paneB.docId!, paneB.file.name) : undefined}
       />
       <div ref={paneBScrollRef} className="flex-1 overflow-auto">
@@ -285,7 +321,7 @@ export default function App() {
         />
       </div>
     </div>
-  ), [paneB, activePane, handlePaneBClose, handleReplacePaneB, handlePaneFocus, paneBScrollRef, handleShareOpen, localMode])
+  ), [paneB, activePane, handlePaneBClose, handleReplacePaneB, handlePaneFocus, paneBScrollRef, handleShareOpen, localMode, hidePane])
 
   // Picker view for pane B when no file is selected (same layout as home page)
   const handlePickerFile = useCallback(async (file: File) => {
@@ -379,12 +415,16 @@ export default function App() {
           </div>
         </div>
       ) : isSplit ? (
+        // SplitPane stays mounted across hide/restore — the hidden pane is
+        // display:none (CSS only), so neither DocumentViewer remounts and both
+        // keep their scroll position / viewer state.
         <SplitPane
           direction={splitDirection}
           splitRatio={splitRatio}
           onSplitRatioChange={setSplitRatio}
           onSwap={swapPanes}
           onDirectionChange={toggleDirection}
+          hiddenPane={hiddenPane}
           paneA={paneAElement}
           paneB={paneB ? paneBElement : paneBPickerElement}
         />
@@ -412,8 +452,17 @@ export default function App() {
       {(openChat, panels, resizeDock, swapDockPanels) => {
         const splitPanels = panels.filter((p) => p.mode === 'split')
         const splitWidth = splitPanels[0]?.splitWidth
-        const dockedPillRight = splitWidth ? splitWidth + 24 : undefined
+        // Floating pills / restore bubbles shift left of a VISIBLE docked panel
+        // (its webview would swallow their clicks). When the whole sidebar is
+        // collapsed there is no webview to avoid, so they keep the default spot.
+        const dockedPillRight = !chatCollapsed && splitWidth ? splitWidth + 24 : undefined
         const collapsedPanels = panels.filter((p) => p.mode === 'collapsed')
+
+        // Opening a chat should always show it — expand a collapsed sidebar first.
+        const handleOpenChat = (url: string, title: string) => {
+          setChatCollapsed(false)
+          openChat(url, title)
+        }
 
         // Dock layout: every split panel is visible at once, arranged either
         // vertically (stacked, like document split panes) or horizontally
@@ -528,7 +577,7 @@ export default function App() {
           splitMode={splitMode}
           onSplitToggle={handleSplitToggle}
           splitButtonRef={splitButtonRef}
-          chatSplitWidth={splitWidth ? splitWidth + 14 : undefined}
+          chatSplitWidth={splitWidth != null && !chatCollapsed ? splitWidth + 14 : undefined}
         >
           {mainContent}
 
@@ -559,6 +608,7 @@ export default function App() {
                 dockHeight={dockRect?.height}
                 dockLeft={dockBox?.left}
                 dockWidth={dockBox?.width}
+                hidden={isSplit && chatCollapsed}
               />
             )
           })}
@@ -567,8 +617,9 @@ export default function App() {
               Rendered after the panels (topmost DOM) and inside their own gap,
               clear of every native webview, so they stay clickable. The hover
               pill offers the same actions as the document split pane divider:
-              swap the two adjacent panels' order + toggle the dock direction. */}
-          {splitPanels.slice(0, -1).map((p, i) => {
+              swap the two adjacent panels' order + toggle the dock direction.
+              Hidden while the whole chat sidebar is collapsed. */}
+          {!chatCollapsed && splitPanels.slice(0, -1).map((p, i) => {
             const next = splitPanels[i + 1]
             const dividerPill = (
               <div
@@ -656,8 +707,13 @@ export default function App() {
           {/* Divider between the document area and the docked chat panels —
               a fixed strip in the gap between the two regions, styled like
               the dock dividers (8px grip + hairline + hover highlight).
-              Dragging it resizes the chat width (splitWidth). */}
-          {splitWidth != null && splitPanels.length > 0 && (
+              Dragging it resizes the chat width (splitWidth). Hover reveals a
+              pill with the whole-sidebar collapse ("收起聊天侧栏") — the only
+              entry point for collapsing ALL docked chats at once, kept off the
+              chat panel headers so it can't be confused with the per-panel
+              "收起此聊天". Hidden when either region is collapsed (there is no
+              gap to drag in). */}
+          {splitWidth != null && splitPanels.length > 0 && !chatCollapsed && (
             <div
               onMouseDown={handleChatWidthDrag}
               className="fixed z-[9998] group flex items-center justify-center cursor-col-resize"
@@ -670,7 +726,57 @@ export default function App() {
               title="拖拽调整聊天宽度"
             >
               <div className="w-px h-8 rounded-full bg-border/60 group-hover:bg-primary/50 transition-colors" />
+              {/* Whole-sidebar collapse — the pill overflows onto the document
+                  area (plain React DOM), so it stays visible and clickable */}
+              <div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                <button
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => setChatCollapsed(true)}
+                  className="flex items-center justify-center w-7 h-7 rounded-full bg-surface-card border border-border shadow-[0_2px_8px_rgba(0,0,0,0.12)] text-text-secondary hover:text-primary hover:bg-surface-alt transition-colors"
+                  title="收起聊天侧栏（收起全部停靠聊天）"
+                >
+                  <PanelRightClose className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
+          )}
+
+          {/* Collapsed chat sidebar — edge tab on the right, one click expands
+              all docked panels back into view. */}
+          {chatCollapsed && splitPanels.length > 0 && (
+            <button
+              onClick={() => setChatCollapsed(false)}
+              className="fixed z-[9999] right-0 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pr-2.5 pl-2 py-3.5 rounded-l-xl bg-surface-card border border-r-0 border-border/60 shadow-[0_4px_24px_rgba(0,0,0,0.08)] hover:bg-surface-alt/60 hover:text-primary transition-colors"
+              title="展开聊天侧栏"
+            >
+              <span
+                className="text-[11px] text-text-secondary tracking-widest select-none"
+                style={{ writingMode: 'vertical-rl' }}
+              >
+                聊天
+              </span>
+              <MessageSquare className="w-4 h-4 text-primary shrink-0" />
+            </button>
+          )}
+
+          {/* Hidden split-view pane — a unified restore bubble in the
+              bottom-left corner (same style as the AI chat restore bubbles):
+              document icon + name + expand icon, one click brings the pane
+              back. The bottom-left corner is never covered by a docked chat
+              webview, so the bubble is always reachable. */}
+          {(hiddenPane === 'a' || hiddenPane === 'b') && (
+            <button
+              onClick={() => showPane(hiddenPane)}
+              className="fixed z-[9999] h-10 max-w-[220px] rounded-xl bg-surface-card text-primary border border-border/60 shadow-[0_4px_24px_rgba(0,0,0,0.08)] flex items-center gap-1.5 pl-2 pr-2 hover:bg-surface-alt/50 hover:scale-105 transition-all"
+              style={{ left: 16, bottom: 16 }}
+              title={`展开 ${hiddenPane === 'a' ? (paneA?.file.name ?? '文档 A') : (paneB?.file.name ?? '文档 B')}`}
+            >
+              <FileText className="w-4 h-4 shrink-0" />
+              <span className="text-xs font-medium text-text truncate">
+                {truncateFileName(hiddenPane === 'a' ? (paneA?.file.name ?? '文档 A') : (paneB?.file.name ?? '文档 B'))}
+              </span>
+              <PanelLeftOpen className="w-4 h-4 shrink-0" />
+            </button>
           )}
 
           {/* Collapsed — restore bubbles (stacked, shifted clear of a docked
@@ -683,6 +789,7 @@ export default function App() {
               index={i}
               right={dockedPillRight}
               service={findServiceByUrl(services, p.currentUrl)}
+              title={p.currentTitle}
             />
           ))}
 
@@ -740,7 +847,7 @@ export default function App() {
           )}
 
           {/* Selection toolbar for AI Q&A */}
-          {activeFile && <SelectionToolbar onOpenChat={openChat} />}
+          {activeFile && <SelectionToolbar onOpenChat={handleOpenChat} />}
 
           {/* Duplicate file confirmation */}
           {pendingDuplicate && (

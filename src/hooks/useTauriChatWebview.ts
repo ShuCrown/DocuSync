@@ -96,6 +96,14 @@ function useChatWebview(
   label: string,
   contentRef: React.RefObject<HTMLElement | null>,
   layoutKey?: string,
+  /**
+   * Sidebar-level collapse (all docked panels hidden at once, e.g. the chat
+   * sidebar "收起"): like the per-panel `collapsed` mode, hide the native
+   * webview without destroying it so the page keeps its state. Passed from
+   * App when the whole docked sidebar is collapsed; when it flips back to
+   * false the webview is re-shown at its placeholder's current bounds.
+   */
+  hidden = false,
 ) {
   const appliedRef = useRef<Bounds | null>(null)
   const urlRef = useRef<string | null>(null)
@@ -169,9 +177,10 @@ function useChatWebview(
       return
     }
 
-    // Collapsed — move webview offscreen without destroying it so page state survives.
-    // Clear appliedRef so the restore path doesn't skip the reposition call.
-    if (mode === 'collapsed') {
+    // Collapsed (per-panel or whole sidebar) — move webview offscreen without
+    // destroying it so page state survives. Clear appliedRef so the restore
+    // path doesn't skip the reposition call.
+    if (mode === 'collapsed' || hidden) {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
       hiddenRef.current = true
       appliedRef.current = null
@@ -223,7 +232,7 @@ function useChatWebview(
       ro?.disconnect()
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
     }
-  }, [mode, url, label, schedule, contentRef, layoutKey])
+  }, [mode, url, label, schedule, contentRef, layoutKey, hidden])
 
   // Close the webview when the component unmounts.
   useEffect(() => {
@@ -247,6 +256,7 @@ export function useTauriChatWebview(
   panel: ChatPanelState,
   contentRef: React.RefObject<HTMLElement | null>,
   layoutKey?: string,
+  hidden = false,
 ) {
   useChatWebview(
     panel.mode,
@@ -254,5 +264,6 @@ export function useTauriChatWebview(
     `ai-chat-${panel.id}`,
     contentRef,
     layoutKey ?? panel.dockDirection,
+    hidden,
   )
 }

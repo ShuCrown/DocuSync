@@ -1,4 +1,4 @@
-import { FileText, X, RefreshCw, Share2 } from 'lucide-react'
+import { FileText, X, RefreshCw, Share2, Minus } from 'lucide-react'
 import type { UploadedFile } from '../hooks/useFileUpload'
 
 interface PaneHeaderProps {
@@ -9,9 +9,11 @@ interface PaneHeaderProps {
   onReplace?: () => void
   onFocus: (pane: 'a' | 'b') => void
   onShare?: () => void
+  /** Temporarily hide this pane in split view (kept mounted, restored via an edge tab). */
+  onHide?: () => void
 }
 
-export function PaneHeader({ file, pane, isActive, onClose, onReplace, onFocus, onShare }: PaneHeaderProps) {
+export function PaneHeader({ file, pane, isActive, onClose, onReplace, onFocus, onShare, onHide }: PaneHeaderProps) {
   return (
     <div
       onClick={() => onFocus(pane)}
@@ -53,6 +55,20 @@ export function PaneHeader({ file, pane, isActive, onClose, onReplace, onFocus, 
           title="更换文档"
         >
           <RefreshCw className="w-3 h-3" />
+        </button>
+      )}
+
+      {/* Hide button — temporarily collapse this pane (restorable) */}
+      {onHide && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onHide()
+          }}
+          className="p-1 rounded text-text-secondary/60 hover:text-text hover:bg-surface-alt transition-colors"
+          title="收起此文档（可恢复）"
+        >
+          <Minus className="w-3 h-3" />
         </button>
       )}
 

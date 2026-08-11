@@ -13,6 +13,8 @@ export interface SplitViewState {
   paneB: UploadedFile | null
   splitRatio: number
   pickerOpen: boolean
+  /** Pane temporarily hidden in split view (kept mounted, restored via an edge tab). */
+  hiddenPane: ActivePane | null
 }
 
 export interface SplitViewActions {
@@ -30,6 +32,8 @@ export interface SplitViewActions {
   setSplitRatio: (ratio: number) => void
   setPaneA: (file: UploadedFile | null) => void
   setPaneB: (file: UploadedFile | null) => void
+  hidePane: (pane: ActivePane) => void
+  showPane: (pane: ActivePane) => void
 }
 
 export function useSplitView(): SplitViewState & SplitViewActions {
@@ -40,6 +44,7 @@ export function useSplitView(): SplitViewState & SplitViewActions {
   const [paneB, setPaneB] = useState<UploadedFile | null>(null)
   const [splitRatio, setSplitRatio] = useState(0.5)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [hiddenPane, setHiddenPane] = useState<ActivePane | null>(null)
 
   const openPicker = useCallback(() => setPickerOpen(true), [])
   const closePicker = useCallback(() => setPickerOpen(false), [])
@@ -49,6 +54,7 @@ export function useSplitView(): SplitViewState & SplitViewActions {
     setMode('split')
     setPickerOpen(false)
     setActivePane('a')
+    setHiddenPane(null)
   }, [])
 
   // Enter split mode showing picker in pane B (no file selected yet)
@@ -57,6 +63,7 @@ export function useSplitView(): SplitViewState & SplitViewActions {
     setMode('split')
     setPickerOpen(false)
     setActivePane('b')
+    setHiddenPane(null)
   }, [])
 
   const exitSplit = useCallback(() => {
@@ -64,6 +71,7 @@ export function useSplitView(): SplitViewState & SplitViewActions {
     setPaneB(null)
     setSplitRatio(0.5)
     setActivePane('a')
+    setHiddenPane(null)
   }, [])
 
   const closePaneA = useCallback(() => {
@@ -73,6 +81,7 @@ export function useSplitView(): SplitViewState & SplitViewActions {
     setMode('single')
     setSplitRatio(0.5)
     setActivePane('a')
+    setHiddenPane(null)
   }, [paneB])
 
   const closePaneB = useCallback(() => {
@@ -81,6 +90,7 @@ export function useSplitView(): SplitViewState & SplitViewActions {
     setMode('single')
     setSplitRatio(0.5)
     setActivePane('a')
+    setHiddenPane(null)
   }, [])
 
   const replacePaneB = useCallback((file: UploadedFile) => {
@@ -91,6 +101,8 @@ export function useSplitView(): SplitViewState & SplitViewActions {
   const swapPanes = useCallback(() => {
     setPaneA(paneB)
     setPaneB(paneA)
+    // A hidden pane follows its document through the swap.
+    setHiddenPane((h) => (h === 'a' ? 'b' : h === 'b' ? 'a' : null))
   }, [paneA, paneB])
 
   const toggleDirection = useCallback(() => {
@@ -105,6 +117,18 @@ export function useSplitView(): SplitViewState & SplitViewActions {
     setSplitRatio(Math.max(0.2, Math.min(0.8, ratio)))
   }, [])
 
+  // Hide one pane in split view — the other fills the area, the hidden pane
+  // stays mounted (display:none) so its viewer state survives. Focus moves to
+  // the visible pane so selection/chat stays usable.
+  const hidePane = useCallback((pane: ActivePane) => {
+    setHiddenPane(pane)
+    setActivePane(pane === 'a' ? 'b' : 'a')
+  }, [])
+
+  const showPane = useCallback((pane: ActivePane) => {
+    setHiddenPane((h) => (h === pane ? null : h))
+  }, [])
+
   return {
     mode,
     direction,
@@ -113,6 +137,7 @@ export function useSplitView(): SplitViewState & SplitViewActions {
     paneB,
     splitRatio,
     pickerOpen,
+    hiddenPane,
     openPicker,
     closePicker,
     enterSplit,
@@ -127,5 +152,7 @@ export function useSplitView(): SplitViewState & SplitViewActions {
     setSplitRatio: handleSetSplitRatio,
     setPaneA,
     setPaneB,
+    hidePane,
+    showPane,
   }
 }

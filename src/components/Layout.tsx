@@ -1,4 +1,11 @@
-import { FileText, Clock, X, User, Columns2, Settings } from 'lucide-react'
+import {
+  FileText,
+  Clock,
+  X,
+  User,
+  Columns2,
+  Settings,
+} from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { getCategoryLabel } from '../utils/fileType'
 import { formatTime } from '../utils/formatTime'

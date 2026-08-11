@@ -54,6 +54,19 @@ interface ChatPanelProps {
    * this service's icon so multiple minimized windows are distinguishable.
    */
   restoreService?: AIService
+  /**
+   * Sidebar-level collapse: when the whole docked chat sidebar is collapsed
+   * ("收起聊天侧栏"), hide this split panel but keep it mounted so its native
+   * webview (or iframe in the browser) preserves page state — same trick as
+   * the per-panel `collapsed` mode.
+   */
+  hidden?: boolean
+  /**
+   * Width override for the vertical dock. When the document area is collapsed
+   * the docked column expands to fill the window, so App passes the full
+   * viewport width here instead of `panel.splitWidth`.
+   */
+  splitWidthOverride?: number
 }
 
 /**
@@ -94,9 +107,13 @@ export function ChatPanel({
   dockWidth,
   bubbleBaseIndex = 0,
   restoreService,
+  hidden = false,
+  splitWidthOverride,
 }: ChatPanelProps) {
   const isFloating = panel.mode === 'floating'
   const isCollapsed = panel.mode === 'collapsed'
+  // Sidebar-level collapse hides a split panel the same way `collapsed` does.
+  const isHidden = isCollapsed || hidden
   // Tauri floating mode uses a standalone OS window instead of an in-page
   // overlay; only the browser still renders the full floating overlay.
   const isTauriFloating = isTauri() && isFloating
@@ -115,11 +132,11 @@ export function ChatPanel({
     panel.dockDirection === 'horizontal'
       ? `h:${dockLeft ?? ''}:${dockWidth ?? ''}`
       : `v:${dockTop ?? ''}:${dockHeight ?? ''}`
-  useTauriChatWebview(panel, contentRef, dockLayoutKey)
+  useTauriChatWebview(panel, contentRef, dockLayoutKey, hidden)
 
-  // Collapsed: keep mounted but invisible so the native webview (or iframe in
-  // the browser) preserves its page state.
-  if (isCollapsed) {
+  // Collapsed (per-panel or whole sidebar): keep mounted but invisible so the
+  // native webview (or iframe in the browser) preserves its page state.
+  if (isHidden) {
     return (
       <div style={{ display: 'none' }} ref={contentRef}>
         {!isTauri() && panel.currentUrl && (
@@ -150,6 +167,7 @@ export function ChatPanel({
           index={bubbleBaseIndex + floatingPillIndex}
           right={floatingPillRight}
           service={restoreService}
+          title={panel.currentTitle}
         />
       )
     }
@@ -193,7 +211,7 @@ export function ChatPanel({
       : {
           right: 6,
           top: dockTop ?? 6,
-          width: panel.splitWidth,
+          width: splitWidthOverride ?? panel.splitWidth,
           height: dockHeight ?? (typeof window !== 'undefined' ? window.innerHeight - 12 : 0),
         }
 
@@ -223,12 +241,15 @@ export function ChatPanel({
           {isFloating ? <Columns2 className="w-3.5 h-3.5" /> : <PictureInPicture2 className="w-3.5 h-3.5" />}
         </button>
 
-        {/* Collapse — hide panel, show restore bubble */}
+        {/* Collapse this panel — hide it, show a restore bubble (per-panel).
+            The whole-sidebar collapse lives on the divider between the
+            document area and the chat column (see App) so the two "收起"
+            actions can't be confused here. */}
         <button
           onMouseDown={(e) => e.stopPropagation()}
           onClick={panel.collapse}
           className="p-1 rounded text-text-secondary hover:text-text hover:bg-surface-alt transition-colors"
-          title="收起"
+          title="收起此聊天"
         >
           <Minus className="w-3.5 h-3.5" />
         </button>
@@ -309,6 +330,7 @@ export function ChatRestoreBubble({
   index = 0,
   right,
   service,
+  title,
 }: {
   onClick: () => void
   index?: number
@@ -316,19 +338,25 @@ export function ChatRestoreBubble({
   /** AI service whose icon is shown on the bubble; falls back to a generic
    * chat icon when omitted. */
   service?: AIService
+  /** Chat theme/title shown next to the icon so multiple collapsed chats are
+   * identifiable at a glance; falls back to the service name / a generic
+   * label when omitted. */
+  title?: string | null
 }) {
+  const label = title ?? service?.name ?? 'AI Chat'
   return (
     <button
       onClick={onClick}
-      className="fixed w-11 h-11 rounded-xl bg-surface-card text-primary border border-border/60 shadow-[0_4px_24px_rgba(0,0,0,0.08)] flex items-center justify-center hover:bg-surface-alt/50 hover:scale-105 transition-all z-[9999]"
+      className="fixed h-10 max-w-[200px] rounded-xl bg-surface-card text-primary border border-border/60 shadow-[0_4px_24px_rgba(0,0,0,0.08)] flex items-center gap-1.5 pl-2 pr-3 hover:bg-surface-alt/50 hover:scale-105 transition-all z-[9999]"
       style={{ bottom: 16 + index * 52, right: right ?? 16 }}
-      title={service ? `恢复 ${service.name}` : '恢复 AI Chat'}
+      title={`恢复 ${label}`}
     >
       {service ? (
-        <ServiceIcon service={service} className="w-5 h-5" />
+        <ServiceIcon service={service} className="w-5 h-5 shrink-0" />
       ) : (
-        <MessageSquare className="w-4.5 h-4.5" />
+        <MessageSquare className="w-4 h-4 shrink-0" />
       )}
+      <span className="text-xs font-medium text-text truncate">{label}</span>
     </button>
   )
 }

@@ -10,6 +10,12 @@ interface SplitPaneProps {
   onDirectionChange?: () => void
   paneA: React.ReactNode
   paneB: React.ReactNode
+  /**
+   * Pane temporarily hidden (kept mounted with display:none so its viewer
+   * state and scroll position survive). The visible pane fills the whole area
+   * and the divider is hidden while one pane is hidden.
+   */
+  hiddenPane?: 'a' | 'b' | null
 }
 
 export function SplitPane({
@@ -20,6 +26,7 @@ export function SplitPane({
   onDirectionChange,
   paneA,
   paneB,
+  hiddenPane,
 }: SplitPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const dragging = useRef(false)
@@ -62,18 +69,25 @@ export function SplitPane({
   }, [direction, onSplitRatioChange])
 
   const isHorizontal = direction === 'horizontal'
+  const paneAHidden = hiddenPane === 'a'
+  const paneBHidden = hiddenPane === 'b'
 
   return (
     <div
       ref={containerRef}
       className={`flex w-full h-full ${isHorizontal ? 'flex-row' : 'flex-col'}`}
     >
-      {/* Pane A */}
+      {/* Pane A — hidden via display:none (kept mounted) so its viewer state
+          survives; fills the whole area when pane B is hidden. */}
       <div
         className="overflow-auto"
-        style={{
-          [isHorizontal ? 'width' : 'height']: `${splitRatio * 100}%`,
-        }}
+        style={
+          paneAHidden
+            ? { display: 'none' }
+            : paneBHidden
+              ? { width: '100%', height: '100%' }
+              : { [isHorizontal ? 'width' : 'height']: `${splitRatio * 100}%` }
+        }
       >
         {paneA}
       </div>
@@ -81,7 +95,9 @@ export function SplitPane({
       {/* Divider with action buttons — an 8px track with an explicit pillar
           color (#e6e5e0, a light grey between the card background and the
           border tone) so the grip area reads as a subtle colored bar, plus a
-          centered 1px hairline that highlights to primary on hover. */}
+          centered 1px hairline that highlights to primary on hover. Hidden
+          while one pane is collapsed (no area to divide). */}
+      {!paneAHidden && !paneBHidden && (
       <div
         onMouseDown={handleMouseDown}
         className={`
@@ -137,13 +153,17 @@ export function SplitPane({
           </button>
         </div>
       </div>
+      )}
 
-      {/* Pane B */}
+      {/* Pane B — hidden via display:none (kept mounted) so its viewer state
+          survives; flex-1 makes it fill the whole area when pane A is hidden. */}
       <div
         className="overflow-auto flex-1"
-        style={{
-          [isHorizontal ? 'width' : 'height']: `${(1 - splitRatio) * 100}%`,
-        }}
+        style={
+          paneBHidden
+            ? { display: 'none' }
+            : { [isHorizontal ? 'width' : 'height']: `${(1 - splitRatio) * 100}%` }
+        }
       >
         {paneB}
       </div>
