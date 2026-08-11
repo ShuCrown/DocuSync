@@ -37,6 +37,13 @@ body {
 .markdown-body {
   line-height: 1.65;
   font-size: 15px;
+  /* Same WKWebView nested-scroller hardening as .office-doc: this container
+     scrolls inside the pane scroller which sits inside the zoom wrappers;
+     without a compositing layer of its own, the packaged macOS app can fail
+     to scroll past the first screen of a long document. */
+  transform: translateZ(0);
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .markdown-body h1,
@@ -113,6 +120,24 @@ body {
   color: var(--color-text);
   overflow-wrap: anywhere;
   word-break: break-word;
+  /* WKWebView (packaged macOS app) fixes: multi-page docx documents are rendered
+     as stacked <section> elements and scrolled by this container. WebKit caches
+     the composited scroll range and misroutes wheel events when the scroller is
+     nested inside another overflow container AND docx-preview inserts its DOM
+     asynchronously — the page then can't scroll past the first "page". Promote
+     this scroller to its own compositing layer and let it own the scroll
+     gesture so Chrome behavior matches the packaged app. */
+  transform: translateZ(0);
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* PDF viewer scroller — same nested-scroller hardening as .office-doc and
+   .markdown-body (scrolls inside the pane scroller inside the zoom wrappers). */
+.pdf-scroller {
+  transform: translateZ(0);
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .office-doc p,

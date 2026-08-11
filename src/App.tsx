@@ -725,9 +725,15 @@ export default function App() {
               and is scaled up to fill the region, so the document reflows
               like browser page zoom while the chat column keeps its width.
               Fixed-position siblings (chat panels, toolbars, restore tabs)
-              live OUTSIDE this layer and use real viewport coordinates. */}
+              live OUTSIDE this layer and use real viewport coordinates.
+              The wrapper is a flex column so `flex-1` children (home, single
+              doc, split) stretch to its height — as a plain block the height
+              chain breaks (flex-1 is a no-op), the inner scroller grows to
+              its content height and scrollHeight === clientHeight, making
+              multi-page documents impossible to scroll. */}
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
             <div
+              className="flex flex-col min-h-0"
               style={{
                 width: `calc(100% / ${docZoom})`,
                 height: `calc(100% / ${docZoom})`,

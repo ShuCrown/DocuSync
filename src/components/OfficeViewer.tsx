@@ -49,6 +49,30 @@ function normalizeDocxImageSvgs(container: HTMLElement, onImageClick?: (src: str
   })
 }
 
+/**
+ * Force the engine to recompute layout & scrollable overflow AFTER docx-preview
+ * finished inserting its DOM. docx-preview renders asynchronously (batches of
+ * nodes across rAFs), and WKWebView (the packaged macOS app) caches the
+ * composited scroll range of the outer scroller while that happens — with a
+ * nested overflow container it can end up with a stale (single-page) scroll
+ * range, so multi-page documents can't be scrolled. Chrome recomputes on its
+ * own, which is why local dev looks fine. Reading layout properties and briefly
+ * toggling the scroller's overflow forces WebKit to drop the stale range.
+ */
+function forceScrollReflow(container: HTMLElement) {
+  const scroller = container.closest<HTMLElement>('.office-doc')
+  // Reading these sizes synchronously forces a layout/reflow pass.
+  void container.scrollHeight
+  if (!scroller) return
+  void scroller.scrollHeight
+  if (scroller.scrollHeight > scroller.clientHeight) {
+    const prev = scroller.style.overflow
+    scroller.style.overflow = 'hidden'
+    void scroller.offsetHeight
+    scroller.style.overflow = prev
+  }
+}
+
 export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: OfficeViewerProps) {
   const [tableData, setTableData] = useState<string[][][]>([])
   const [sheetNames, setSheetNames] = useState<string[]>([])
@@ -103,10 +127,16 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
 
         // docx-preview measures VML drawings in requestAnimationFrame and writes
         // fixed SVG width/height attributes. Normalize after that pass so CSS can
-        // scale document images with the preview pane.
+        // scale document images with the preview pane. Also force a scroll-range
+        // refresh for the outer scroller (WKWebView keeps a stale composited
+        // range while the DOM is inserted asynchronously — see forceScrollReflow).
         requestAnimationFrame(() => {
           normalizeDocxImageSvgs(el, handleImageClick)
-          requestAnimationFrame(() => normalizeDocxImageSvgs(el, handleImageClick))
+          requestAnimationFrame(() => {
+            normalizeDocxImageSvgs(el, handleImageClick)
+            forceScrollReflow(el)
+            requestAnimationFrame(() => forceScrollReflow(el))
+          })
         })
 
         // Extract text for AI summary (reuse cached if available)
@@ -125,12 +155,19 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
           setError(err instanceof Error ? err.message : '文件解析失败')
         }
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+          // Loading overlay removal changes the scroller's box — refresh the
+          // WebKit composited scroll range once more after the overlay unmounts.
+          requestAnimationFrame(() => {
+            if (el.isConnected) forceScrollReflow(el)
+          })
+        }
       }
     }
     process()
     return () => { cancelled = true }
-  }, [file, category, cacheKey])
+  }, [file, category, cacheKey, handleImageClick])
 
   // Excel / PowerPoint
   useEffect(() => {
