@@ -105,7 +105,17 @@ export function ChatPanel({
   const startResize = useResizeDrag(panel)
   const { minimized, minimize, restore } = useTauriChatWindow(panel)
 
-  useTauriChatWebview(panel, contentRef)
+  // Layout key for webview re-sync. This MUST reflect the panel's actual
+  // docked position/size — not just the direction: swapping two adjacent
+  // panels (⇄) changes their top/left while keeping size AND direction
+  // unchanged, and a native webview keyed only on direction/size would keep
+  // covering its OLD spot (the "first chat not displayed" bug). Encoding the
+  // position/size covers every layout-affecting change.
+  const dockLayoutKey =
+    panel.dockDirection === 'horizontal'
+      ? `h:${dockLeft ?? ''}:${dockWidth ?? ''}`
+      : `v:${dockTop ?? ''}:${dockHeight ?? ''}`
+  useTauriChatWebview(panel, contentRef, dockLayoutKey)
 
   // Collapsed: keep mounted but invisible so the native webview (or iframe in
   // the browser) preserves its page state.

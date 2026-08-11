@@ -84,12 +84,18 @@ function boundsEqual(a: Bounds, b: Bounds, eps = 0.5): boolean {
  * Keep ONE AI chat child webview (`label`) in sync with its React placeholder
  * element. Each chat panel instance owns its own webview, labelled
  * `ai-chat-{panelId}`, created lazily when its URL is set.
+ *
+ * `layoutKey` forces a re-sync when the panel's dock layout changes (e.g.
+ * switching the dock direction vertical↔horizontal): the placeholder's
+ * position/size can change without a resize, and a stale native webview would
+ * keep covering its old spot.
  */
 function useChatWebview(
   mode: ChatPanelState['mode'],
   url: string | null,
   label: string,
   contentRef: React.RefObject<HTMLElement | null>,
+  layoutKey?: string,
 ) {
   const appliedRef = useRef<Bounds | null>(null)
   const urlRef = useRef<string | null>(null)
@@ -217,7 +223,7 @@ function useChatWebview(
       ro?.disconnect()
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
     }
-  }, [mode, url, label, schedule, contentRef])
+  }, [mode, url, label, schedule, contentRef, layoutKey])
 
   // Close the webview when the component unmounts.
   useEffect(() => {
@@ -240,6 +246,13 @@ function useChatWebview(
 export function useTauriChatWebview(
   panel: ChatPanelState,
   contentRef: React.RefObject<HTMLElement | null>,
+  layoutKey?: string,
 ) {
-  useChatWebview(panel.mode, panel.currentUrl, `ai-chat-${panel.id}`, contentRef)
+  useChatWebview(
+    panel.mode,
+    panel.currentUrl,
+    `ai-chat-${panel.id}`,
+    contentRef,
+    layoutKey ?? panel.dockDirection,
+  )
 }

@@ -68,6 +68,12 @@ export interface ChatPanelsState {
    * `topRatio` of the docked column, `bottomId` gets the rest.
    */
   resizeDock: (topId: string, bottomId: string, topRatio: number) => void
+  /**
+   * Swap the ORDER of two adjacent docked panels (their positions in the
+   * docked column), mirroring the document split pane's swap action. Each
+   * panel keeps its own `dockRatio`, so the swap is purely positional.
+   */
+  swapDockPanels: (idA: string, idB: string) => void
 }
 
 interface PanelData {
@@ -221,6 +227,20 @@ export function useChatPanel(): ChatPanelsState {
     })
   }, [])
 
+  // Swap the ORDER of two adjacent docked panels. Position in the `data` array
+  // drives the dock layout order (App iterates `splitPanels` in order), so
+  // swapping array entries re-orders them; each panel keeps its own ratio.
+  const swapDockPanels = useCallback((idA: string, idB: string) => {
+    setData((prev) => {
+      const ia = prev.findIndex((p) => p.id === idA)
+      const ib = prev.findIndex((p) => p.id === idB)
+      if (ia < 0 || ib < 0 || ia === ib) return prev
+      const next = [...prev]
+      ;[next[ia], next[ib]] = [next[ib], next[ia]]
+      return next
+    })
+  }, [])
+
   // Open chat: reuse the panel already hosting this service (restore/focus it),
   // otherwise create a NEW panel. New panels inherit the last used layout, so
   // they can dock directly into the sidebar alongside existing panels.
@@ -287,5 +307,5 @@ export function useChatPanel(): ChatPanelsState {
     toggleDockDirection,
   }))
 
-  return { panels, openChat, resizeDock }
+  return { panels, openChat, resizeDock, swapDockPanels }
 }

@@ -78,14 +78,27 @@ export function SplitPane({
         {paneA}
       </div>
 
-      {/* Divider with action buttons */}
+      {/* Divider with action buttons — an 8px track with an explicit pillar
+          color (#e6e5e0, a light grey between the card background and the
+          border tone) so the grip area reads as a subtle colored bar, plus a
+          centered 1px hairline that highlights to primary on hover. */}
       <div
         onMouseDown={handleMouseDown}
         className={`
-          shrink-0 bg-border relative group
-          ${isHorizontal ? 'w-3 cursor-col-resize' : 'h-3 cursor-row-resize'}
+          shrink-0 relative group bg-[#e6e5e0]
+          ${isHorizontal ? 'w-2 cursor-col-resize' : 'h-2 cursor-row-resize'}
         `}
       >
+        {/* Hairline — the visible grip line, same as chat dividers */}
+        <div
+          className={`
+            absolute bg-border/60 group-hover:bg-primary/50 transition-colors rounded-full
+            ${isHorizontal
+              ? 'left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-px h-8'
+              : 'left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-px'}
+          `}
+        />
+
         {/* Center action pill — visible on hover */}
         <div
           data-divider-action

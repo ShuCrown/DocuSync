@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { Loader2, X, Columns2, Rows2 } from 'lucide-react'
+import { Loader2, X, Columns2, Rows2, ArrowLeftRight } from 'lucide-react'
 import { Layout } from './components/Layout'
 import { FileUpload } from './components/FileUpload'
 import { FileHistory } from './components/FileHistory'
@@ -406,7 +406,7 @@ export default function App() {
 
   return (
     <ChatPanelContainer>
-      {(openChat, panels, resizeDock) => {
+      {(openChat, panels, resizeDock, swapDockPanels) => {
         const splitPanels = panels.filter((p) => p.mode === 'split')
         const splitWidth = splitPanels[0]?.splitWidth
         const dockedPillRight = splitWidth ? splitWidth + 24 : undefined
@@ -562,22 +562,47 @@ export default function App() {
 
           {/* Divider strips in the gaps BETWEEN docked panels — drag to resize.
               Rendered after the panels (topmost DOM) and inside their own gap,
-              clear of every native webview, so they stay clickable. The
-              direction toggle lives on each divider (hover to reveal), exactly
-              like the document split pane divider. */}
+              clear of every native webview, so they stay clickable. The hover
+              pill offers the same actions as the document split pane divider:
+              swap the two adjacent panels' order + toggle the dock direction. */}
           {splitPanels.slice(0, -1).map((p, i) => {
             const next = splitPanels[i + 1]
             const dividerPill = (
-              <button
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={toggleDockDirection}
-                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 p-1 rounded-full bg-surface-card border border-border shadow-[0_2px_8px_rgba(0,0,0,0.12)] text-text-secondary hover:text-primary hover:bg-surface-alt transition-colors"
-                title={dockDirection === 'vertical' ? '切换为横向分栏' : '切换为纵向分栏'}
+              <div
+                className={`absolute left-1/2 -translate-x-1/2 flex items-center gap-0.5 rounded-full bg-surface-card border border-border shadow-[0_2px_8px_rgba(0,0,0,0.12)] text-text-secondary ${
+                  dockDirection === 'vertical'
+                    ? // Vertical dock: the divider is a horizontal strip between
+                      // stacked panels. Anchor the pill to the strip's TOP so
+                      // it only overflows DOWNWARD into the panel below's
+                      // header (plain React DOM) — overflowing upward would
+                      // hide it under the panel above's native webview, which
+                      // draws over the React DOM.
+                      'top-0 flex-row px-1 py-0.5'
+                    : // Horizontal dock: keep the pill centered on the strip.
+                      'top-1/2 -translate-y-1/2 flex-col py-1 px-0.5'
+                }`}
               >
-                {dockDirection === 'vertical'
-                  ? <Columns2 className="w-3.5 h-3.5" />
-                  : <Rows2 className="w-3.5 h-3.5" />}
-              </button>
+                {/* Swap the two adjacent panels' order */}
+                <button
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => swapDockPanels(p.id, next.id)}
+                  className="p-1 rounded-full hover:text-primary hover:bg-surface-alt transition-colors"
+                  title={dockDirection === 'vertical' ? '交换上下位置' : '交换左右位置'}
+                >
+                  <ArrowLeftRight className="w-3.5 h-3.5" />
+                </button>
+                {/* Toggle dock direction */}
+                <button
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={toggleDockDirection}
+                  className="p-1 rounded-full hover:text-primary hover:bg-surface-alt transition-colors"
+                  title={dockDirection === 'vertical' ? '切换为横向分栏' : '切换为纵向分栏'}
+                >
+                  {dockDirection === 'vertical'
+                    ? <Columns2 className="w-3.5 h-3.5" />
+                    : <Rows2 className="w-3.5 h-3.5" />}
+                </button>
+              </div>
             )
             if (dockDirection === 'vertical') {
               const rect = dockRects.get(p.id)
