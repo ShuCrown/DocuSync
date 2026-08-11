@@ -100,9 +100,12 @@ export default function App() {
     account.checkStatus()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Check for app updates on startup (Tauri only; no-op in the browser)
+  // Check for app updates on startup (Tauri only; no-op in the browser).
+  // Skipped in local development (`import.meta.env.DEV` is true for both
+  // `vite dev` and `tauri dev`) so dev runs never hit the updater manifest;
+  // the packaged app is a production build (DEV=false) and checks normally.
   useEffect(() => {
-    if (isTauri()) autoCheckForUpdate()
+    if (isTauri() && !import.meta.env.DEV) autoCheckForUpdate()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Get the active file based on which pane is active

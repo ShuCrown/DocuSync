@@ -25,11 +25,6 @@ export function UpdateBanner() {
             <Download className="w-4 h-4 text-primary shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-text">发现新版本 {u.version}</p>
-              {u.notes && (
-                <p className="text-xs text-text-secondary mt-1 line-clamp-3 whitespace-pre-wrap">
-                  {u.notes}
-                </p>
-              )}
             </div>
             <button
               onClick={() => setDismissed(true)}
@@ -39,6 +34,11 @@ export function UpdateBanner() {
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
+          {u.notes && (
+            <p className="text-xs text-text-secondary max-h-32 w-full overflow-y-auto whitespace-pre-wrap">
+              {u.notes}
+            </p>
+          )}
           <button
             onClick={() => downloadAndInstallUpdate()}
             className="w-full px-3 py-1.5 text-xs font-medium text-white bg-primary rounded-md hover:bg-primary-dark transition-colors"
