@@ -5,6 +5,8 @@ import {
   User,
   Columns2,
   Settings,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { getCategoryLabel } from '../utils/fileType'
@@ -27,6 +29,12 @@ interface LayoutProps {
   splitButtonRef?: React.RefObject<HTMLElement | null>
   // Chat panel split width — shrinks the main panel to make room
   chatSplitWidth?: number
+  // Browser-like zoom of the DOCUMENT area only (chat panels zoom via their
+  // own per-panel controls).
+  docZoom?: number
+  onDocZoomIn?: () => void
+  onDocZoomOut?: () => void
+  onDocZoomReset?: () => void
 }
 
 export function Layout({
@@ -44,10 +52,16 @@ export function Layout({
   onSplitToggle,
   splitButtonRef,
   chatSplitWidth,
+  docZoom = 1,
+  onDocZoomIn,
+  onDocZoomOut,
+  onDocZoomReset,
 }: LayoutProps) {
   const isSplit = splitMode === 'split'
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [zoomOpen, setZoomOpen] = useState(false)
   const historyRef = useRef<HTMLDivElement>(null)
+  const zoomRef = useRef<HTMLDivElement>(null)
 
   // Close history dropdown on click outside
   useEffect(() => {
@@ -61,10 +75,22 @@ export function Layout({
     return () => document.removeEventListener('mousedown', handler)
   }, [historyOpen])
 
+  // Close zoom popover on click outside
+  useEffect(() => {
+    if (!zoomOpen) return
+    const handler = (e: MouseEvent) => {
+      if (zoomRef.current && !zoomRef.current.contains(e.target as Node)) {
+        setZoomOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [zoomOpen])
+
   return (
     <div
       data-split={isSplit || undefined}
-      className="h-screen bg-surface flex flex-col overflow-hidden p-1.5"
+      className="h-full bg-surface flex flex-col overflow-hidden p-1.5"
       style={chatSplitWidth ? { paddingRight: chatSplitWidth } : undefined}
     >
       {/* Unified floating panel: header + content */}
@@ -96,6 +122,55 @@ export function Layout({
 
             {/* Right: actions */}
             <div className="flex items-center gap-1.5 shrink-0">
+              {/* Zoom control — browser-like scale of the DOCUMENT area */}
+              {onDocZoomIn && onDocZoomOut && (
+                <div className="relative" ref={zoomRef}>
+                  <button
+                    onClick={() => setZoomOpen((v) => !v)}
+                    className={`
+                      px-2 h-8 rounded-md text-xs font-medium transition-colors
+                      ${zoomOpen
+                        ? 'bg-surface-alt text-text'
+                        : 'text-text-secondary hover:text-text hover:bg-surface-alt/60'
+                      }
+                    `}
+                    title="缩放文档区（Ctrl/⌘ + 滚轮；桌面端 ⌘/Ctrl + 加号、减号，0 重置）"
+                  >
+                    {Math.round(docZoom * 100)}%
+                  </button>
+
+                  {zoomOpen && (
+                    <div className="absolute right-0 top-full mt-1 z-50 flex items-center gap-1 p-1 w-max flex-nowrap bg-surface-card border border-border rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.12)]">
+                      <button
+                        onClick={() => { onDocZoomOut?.() }}
+                        className="p-1.5 shrink-0 rounded-md text-text-secondary hover:text-text hover:bg-surface-alt transition-colors"
+                        title="缩小文档区"
+                      >
+                        <ZoomOut className="w-3.5 h-3.5" />
+                      </button>
+                      <span className="text-xs text-text w-11 shrink-0 text-center select-none">
+                        {Math.round(docZoom * 100)}%
+                      </span>
+                      <button
+                        onClick={() => { onDocZoomIn?.() }}
+                        className="p-1.5 shrink-0 rounded-md text-text-secondary hover:text-text hover:bg-surface-alt transition-colors"
+                        title="放大文档区"
+                      >
+                        <ZoomIn className="w-3.5 h-3.5" />
+                      </button>
+                      <div className="w-px h-4 bg-border mx-0.5 shrink-0" />
+                      <button
+                        onClick={() => { onDocZoomReset?.() }}
+                        className="px-2 py-1 shrink-0 whitespace-nowrap rounded-md text-[11px] text-text-secondary hover:text-text hover:bg-surface-alt transition-colors"
+                        title="重置文档区为 100%"
+                      >
+                        重置
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Split button (only when file is open, hidden in split mode) */}
               {currentFileName && !isSplit && onSplitToggle && (
                 <button

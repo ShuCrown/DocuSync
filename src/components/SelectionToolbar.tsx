@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Settings } from 'lucide-react'
 import { useAIServices } from '../hooks/useAIServices'
+import { useZoomScale } from '../hooks/useZoom'
 import { AISettingsPanel } from './AISettingsPanel'
 import type { AIService } from '../hooks/useAIServices'
 
@@ -51,6 +52,7 @@ const VIEWPORT_MARGIN = 8
 
 export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, title: string) => void }) {
   const { services, enabledServices, addService, removeService, moveService, toggleService, updateService, resetToDefaults } = useAIServices()
+  const scale = useZoomScale()
   const [text, setText] = useState('')
   const [pos, setPos] = useState<Pos | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -78,21 +80,24 @@ export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, ti
         rect.top < TOOLBAR_HEIGHT + VIEWPORT_MARGIN ? 'below' : 'above'
 
       // Clamp horizontal position so the toolbar stays fully on-screen.
-      const viewportWidth = window.innerWidth
+      // The toolbar is fixed inside the global zoom wrapper, so it positions
+      // itself in logical pixels while the selection rect is reported in
+      // visual (post-zoom) pixels — divide the rect by the scale.
+      const viewportWidth = window.innerWidth / scale
       const halfWidth = TOOLBAR_ESTIMATED_WIDTH / 2
-      const rawLeft = rect.left + rect.width / 2
+      const rawLeft = rect.left / scale + (rect.width / scale) / 2
       const minLeft = halfWidth + VIEWPORT_MARGIN
       const maxLeft = viewportWidth - halfWidth - VIEWPORT_MARGIN
       const left = Math.max(minLeft, Math.min(maxLeft, rawLeft))
 
       const top = placement === 'above'
-        ? rect.top - VIEWPORT_MARGIN
-        : rect.bottom + VIEWPORT_MARGIN
+        ? rect.top / scale - VIEWPORT_MARGIN
+        : rect.bottom / scale + VIEWPORT_MARGIN
 
       setPos({ top, left, placement })
       setText(t)
     }, 80)
-  }, [])
+  }, [scale])
 
   useEffect(() => {
     document.addEventListener('mouseup', handleSelection)

@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import { listen } from '@tauri-apps/api/event'
 import {
   Loader2,
   X,
@@ -35,6 +36,7 @@ import { autoCheckForUpdate } from './hooks/useUpdater'
 import { getFileCategory, isSupported } from './utils/fileType'
 import { isTauri } from './utils/tauri'
 import { getStorageMode } from './lib/storage-mode'
+import { ZoomScaleContext } from './hooks/useZoom'
 import * as api from './lib/api'
 import type { FileRecord } from './hooks/useFileHistory'
 import type { UploadedFile } from './hooks/useFileUpload'
@@ -56,6 +58,21 @@ function findServiceByUrl(services: AIService[], url: string | null): AIService 
 // Collapse state for the docked chat sidebar, persisted across sessions so
 // the user's layout preference survives restarts.
 const LS_CHAT_COLLAPSED = 'docusync.layout.chatCollapsed'
+// Document-area zoom (browser-like scale of the document region only),
+// persisted across sessions. Chat panels zoom independently via their own
+// per-panel controls.
+const LS_DOC_ZOOM = 'docusync.layout.docZoom'
+// Global UI zoom — scales the whole interface (document + chat column) to fit
+// the window. Controlled from the Settings panel. Region zoom layers (docZoom,
+// per-panel chat zoom) stack on top of it.
+const LS_UI_ZOOM = 'docusync.layout.uiZoom'
+
+export const DOC_ZOOM_MIN = 0.4
+export const DOC_ZOOM_MAX = 1.6
+export const DOC_ZOOM_STEP = 0.1
+
+const UI_ZOOM_MIN = 0.4
+const UI_ZOOM_MAX = 1.6
 
 function readCollapsed(key: string): boolean {
   try {
@@ -63,6 +80,34 @@ function readCollapsed(key: string): boolean {
   } catch {
     return false
   }
+}
+
+function readDocZoom(): number {
+  try {
+    const v = Number(localStorage.getItem(LS_DOC_ZOOM))
+    if (!Number.isFinite(v) || v <= 0) return 1
+    return Math.max(DOC_ZOOM_MIN, Math.min(DOC_ZOOM_MAX, v))
+  } catch {
+    return 1
+  }
+}
+
+function clampDocZoom(z: number): number {
+  return Math.round(Math.max(DOC_ZOOM_MIN, Math.min(DOC_ZOOM_MAX, z)) * 10) / 10
+}
+
+function readUiZoom(): number {
+  try {
+    const v = Number(localStorage.getItem(LS_UI_ZOOM))
+    if (!Number.isFinite(v) || v <= 0) return 1
+    return Math.max(UI_ZOOM_MIN, Math.min(UI_ZOOM_MAX, v))
+  } catch {
+    return 1
+  }
+}
+
+function clampUiZoom(z: number): number {
+  return Math.round(Math.max(UI_ZOOM_MIN, Math.min(UI_ZOOM_MAX, z)) * 10) / 10
 }
 
 /** Shorten a file name for the document restore bubbles. */
@@ -92,12 +137,88 @@ export default function App() {
   const initialPaneAPos = useRef<{ x: number; y: number } | null>(null)
   const [pendingDuplicate, setPendingDuplicate] = useState<File | null>(null)
   const localMode = getStorageMode() === 'local'
+  // Any modal overlay open (settings / account / share / duplicate confirm).
+  // While one is open the docked chat panels are hidden (kept mounted) so the
+  // modal is never covered — the chat webviews are native views in Tauri that
+  // draw over the React DOM regardless of z-index, so hiding is the only way.
+  const anyModalOpen = settingsOpen || accountOpen || !!shareDoc || !!pendingDuplicate
   // Docked chat sidebar collapsed / expanded (edge tab on the right restores it).
   const [chatCollapsed, setChatCollapsed] = useState(() => readCollapsed(LS_CHAT_COLLAPSED))
+  // Browser-like zoom of the DOCUMENT area only (the chat column has its own
+  // per-panel zoom). Narrow screens can zoom out the document to fit the
+  // docked chat alongside it.
+  const [docZoom, setDocZoom] = useState<number>(readDocZoom)
+  // Global UI zoom — whole-interface scale, controlled from the Settings
+  // panel. The region zoom layers (docZoom, per-panel chat zoom) stack on top.
+  const [uiZoom, setUiZoom] = useState<number>(readUiZoom)
 
   useEffect(() => {
     try { localStorage.setItem(LS_CHAT_COLLAPSED, chatCollapsed ? '1' : '0') } catch { /* ignore */ }
   }, [chatCollapsed])
+  useEffect(() => {
+    try { localStorage.setItem(LS_DOC_ZOOM, String(docZoom)) } catch { /* ignore */ }
+  }, [docZoom])
+  useEffect(() => {
+    try { localStorage.setItem(LS_UI_ZOOM, String(uiZoom)) } catch { /* ignore */ }
+  }, [uiZoom])
+
+  // OS-level zoom shortcuts registered by Rust (global-shortcut plugin) — they
+  // fire even while focus is inside the embedded chat webview, where normal
+  // keydown events never reach this window. They drive the DOCUMENT-area zoom.
+  // Tauri only.
+  useEffect(() => {
+    if (!isTauri()) return
+    let unlisten: (() => void) | undefined
+    listen<string>('ui-zoom-shortcut', (e) => {
+      if (e.payload === 'in') setDocZoom((z) => clampDocZoom(z + DOC_ZOOM_STEP))
+      else if (e.payload === 'out') setDocZoom((z) => clampDocZoom(z - DOC_ZOOM_STEP))
+      else if (e.payload === 'reset') setDocZoom(1)
+    }).then((fn) => { unlisten = fn })
+    return () => { unlisten?.() }
+  }, [])
+
+  // Browser-like zoom shortcuts: Cmd/Ctrl +/-, Cmd/Ctrl + 0 resets — drive the
+  // DOCUMENT-area zoom.
+  // NOTE: in a real browser, Cmd/Ctrl+Plus/Minus/0 are RESERVED by the browser
+  // itself (native page zoom) and are never delivered to the page, so these
+  // keys only fire in the Tauri desktop build. In the browser use the header
+  // zoom button or Ctrl/Cmd + mouse wheel (see below).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return
+      if (e.key === '=' || e.key === '+') {
+        e.preventDefault()
+        setDocZoom((z) => clampDocZoom(z + DOC_ZOOM_STEP))
+      } else if (e.key === '-') {
+        e.preventDefault()
+        setDocZoom((z) => clampDocZoom(z - DOC_ZOOM_STEP))
+      } else if (e.key === '0') {
+        e.preventDefault()
+        setDocZoom(1)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // Ctrl/Cmd + mouse wheel zooms the DOCUMENT area like a browser. Wheel events
+  // are always delivered to the page (they are not reserved browser
+  // accelerators), so this works in the browser AND in Tauri — including
+  // trackpad pinch-to-zoom, which browsers report as ctrl+wheel events.
+  // (Wheel events over the embedded chat webview/iframe are captured by the
+  // chat page itself; chat zoom is adjusted via each panel's header control.)
+  useEffect(() => {
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return
+      e.preventDefault()
+      // One typical mouse-wheel notch (~100 delta) = one 10% step, matching
+      // native browser zoom feel; fast/wide scrolls accumulate up to 3 steps.
+      const steps = Math.max(1, Math.min(3, Math.abs(Math.round(e.deltaY / 100))))
+      setDocZoom((z) => clampDocZoom(z + (e.deltaY < 0 ? DOC_ZOOM_STEP * steps : -DOC_ZOOM_STEP * steps)))
+    }
+    window.addEventListener('wheel', onWheel, { passive: false })
+    return () => window.removeEventListener('wheel', onWheel)
+  }, [])
 
   // Live viewport size — drives the layout of docked chat panes.
   const [viewportSize, setViewportSize] = useState(() => ({
@@ -109,8 +230,8 @@ export default function App() {
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
-  const viewportWidth = viewportSize.width
-  const viewportHeight = viewportSize.height
+  const viewportWidth = viewportSize.width / uiZoom
+  const viewportHeight = viewportSize.height / uiZoom
 
   useEffect(() => {
     paneBRef.current = paneB
@@ -448,9 +569,25 @@ export default function App() {
   )
 
   return (
+    <ZoomScaleContext.Provider value={uiZoom}>
+      {/* Global zoom wrapper — the whole UI lays out in logical coordinates
+          (100vw/uiZoom × 100vh/uiZoom) and is scaled to fill the real viewport,
+          like browser page zoom. It becomes the containing block for all
+          fixed-position elements, so they stay aligned after scaling. Region
+          zoom layers (document area, per-panel chat) stack inside this
+          wrapper — each transform multiplies with the global scale. */}
+      <div
+        className="overflow-hidden"
+        style={{
+          width: `${100 / uiZoom}vw`,
+          height: `${100 / uiZoom}vh`,
+          transform: `scale(${uiZoom})`,
+          transformOrigin: 'top left',
+        }}
+      >
     <ChatPanelContainer>
-      {(openChat, panels, resizeDock, swapDockPanels) => {
-        const splitPanels = panels.filter((p) => p.mode === 'split')
+    {(openChat, panels, resizeDock, swapDockPanels) => {
+      const splitPanels = panels.filter((p) => p.mode === 'split')
         const splitWidth = splitPanels[0]?.splitWidth
         // Floating pills / restore bubbles shift left of a VISIBLE docked panel
         // (its webview would swallow their clicks). When the whole sidebar is
@@ -578,8 +715,29 @@ export default function App() {
           onSplitToggle={handleSplitToggle}
           splitButtonRef={splitButtonRef}
           chatSplitWidth={splitWidth != null && !chatCollapsed ? splitWidth + 14 : undefined}
+          docZoom={docZoom}
+          onDocZoomIn={() => setDocZoom((z) => clampDocZoom(z + DOC_ZOOM_STEP))}
+          onDocZoomOut={() => setDocZoom((z) => clampDocZoom(z - DOC_ZOOM_STEP))}
+          onDocZoomReset={() => setDocZoom(1)}
         >
-          {mainContent}
+          {/* Document area — wrapped in its own browser-like zoom layer. The
+              wrapper lays out at (100%/docZoom × 100%/docZoom) logical size
+              and is scaled up to fill the region, so the document reflows
+              like browser page zoom while the chat column keeps its width.
+              Fixed-position siblings (chat panels, toolbars, restore tabs)
+              live OUTSIDE this layer and use real viewport coordinates. */}
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            <div
+              style={{
+                width: `calc(100% / ${docZoom})`,
+                height: `calc(100% / ${docZoom})`,
+                transform: `scale(${docZoom})`,
+                transformOrigin: 'top left',
+              }}
+            >
+              {mainContent}
+            </div>
+          </div>
 
           {/* One ChatPanel per AI service — multiple panels coexist; docked
               ones stack vertically and are ALL visible (like document split
@@ -608,7 +766,7 @@ export default function App() {
                 dockHeight={dockRect?.height}
                 dockLeft={dockBox?.left}
                 dockWidth={dockBox?.width}
-                hidden={isSplit && chatCollapsed}
+                hidden={isSplit && (chatCollapsed || anyModalOpen)}
               />
             )
           })}
@@ -832,6 +990,8 @@ export default function App() {
           <SettingsPanel
             open={settingsOpen}
             onClose={handleSettingsClose}
+            uiZoom={uiZoom}
+            onUiZoomChange={(z) => setUiZoom(clampUiZoom(z))}
           />
 
           {/* Startup update banner (Tauri only; renders nothing in the browser) */}
@@ -861,5 +1021,7 @@ export default function App() {
         )
       }}
     </ChatPanelContainer>
+      </div>
+    </ZoomScaleContext.Provider>
   )
 }

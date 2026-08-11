@@ -8,7 +8,7 @@ interface DuplicateConfirmProps {
 
 export function DuplicateConfirm({ fileName, onConfirm, onCancel }: DuplicateConfirmProps) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[10001] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onCancel} />
       <div className="relative w-full max-w-sm bg-surface-card rounded-xl border border-border/60 shadow-[0_8px_30px_rgba(0,0,0,0.12)] overflow-hidden">
         {/* Header */}

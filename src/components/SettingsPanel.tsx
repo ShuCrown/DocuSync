@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useSyncExternalStore } from 'react'
-import { X, Settings, HardDrive, Cloud, Check, AlertCircle, RotateCw, FolderOpen, Upload, Download } from 'lucide-react'
+import { X, Settings, HardDrive, Cloud, Check, AlertCircle, RotateCw, FolderOpen, Upload, Download, ZoomIn, ZoomOut } from 'lucide-react'
 import {
   getStorageMode,
   setStorageMode,
@@ -23,6 +23,11 @@ import { UpdateSection } from './UpdateSection'
 interface SettingsPanelProps {
   open: boolean
   onClose: () => void
+  /** Global UI zoom (1 = 100%) — whole-interface scale, applied live. The
+   * document area and each chat panel have their own independent zoom that
+   * stacks on top of this one. */
+  uiZoom?: number
+  onUiZoomChange?: (zoom: number) => void
 }
 
 function useStorageMode() {
@@ -41,7 +46,7 @@ function useRemoteBase() {
   )
 }
 
-export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
+export function SettingsPanel({ open, onClose, uiZoom = 1, onUiZoomChange }: SettingsPanelProps) {
   const mode = useStorageMode()
   const remoteBase = useRemoteBase()
 
@@ -52,6 +57,8 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
     mode={mode}
     remoteBase={remoteBase}
     onClose={onClose}
+    uiZoom={uiZoom}
+    onUiZoomChange={onUiZoomChange}
   />
 }
 
@@ -59,9 +66,11 @@ interface BodyProps {
   mode: StorageMode
   remoteBase: string
   onClose: () => void
+  uiZoom?: number
+  onUiZoomChange?: (zoom: number) => void
 }
 
-function SettingsPanelBody({ mode, remoteBase, onClose }: BodyProps) {
+function SettingsPanelBody({ mode, remoteBase, onClose, uiZoom = 1, onUiZoomChange }: BodyProps) {
   const [pendingMode, setPendingMode] = useState<StorageMode | null>(null)
   const [baseInput, setBaseInput] = useState(remoteBase)
   const [showConfirm, setShowConfirm] = useState(false)
@@ -76,11 +85,18 @@ function SettingsPanelBody({ mode, remoteBase, onClose }: BodyProps) {
   const localAvailable = canUseLocalMode()
 
   useEffect(() => {
+    let cancelled = false
     if (effectiveMode === 'local' && localAvailable) {
-      getLocalStorageRoot().then(setLocalPath).catch(() => setLocalPath(null))
+      getLocalStorageRoot()
+        .then((path) => { if (!cancelled) setLocalPath(path) })
+        .catch(() => { if (!cancelled) setLocalPath(null) })
     } else {
+      // Reset the stored path when leaving local mode — fires once per mode
+      // flip, guarded by the effect deps (not a render loop).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLocalPath(null)
     }
+    return () => { cancelled = true }
   }, [effectiveMode, localAvailable])
 
   const modeChanged = pendingMode !== null && pendingMode !== mode
@@ -206,7 +222,7 @@ function SettingsPanelBody({ mode, remoteBase, onClose }: BodyProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
+      className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/30 backdrop-blur-sm"
       onClick={guardedClose}
     >
       <div
@@ -233,6 +249,45 @@ function SettingsPanelBody({ mode, remoteBase, onClose }: BodyProps) {
             <div className="flex items-start gap-2 p-3 bg-error/5 border border-error/10 rounded-md text-sm text-error">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{error}</span>
+            </div>
+          )}
+
+          {/* Interface zoom section */}
+          {onUiZoomChange && (
+            <div className="space-y-2.5">
+              <div>
+                <p className="text-sm font-medium text-text">界面缩放</p>
+                <p className="text-xs text-text-secondary mt-0.5">
+                  缩放整个界面以适配窗口。文档区与各聊天面板另有各自独立的缩放，叠加在此之上
+                </p>
+              </div>
+              <div className="flex items-center gap-1 p-1 w-max flex-nowrap bg-surface-alt/40 border border-border rounded-md">
+                <button
+                  onClick={() => onUiZoomChange(uiZoom - 0.1)}
+                  className="p-1.5 shrink-0 rounded text-text-secondary hover:text-text hover:bg-surface-alt transition-colors"
+                  title="缩小界面"
+                >
+                  <ZoomOut className="w-3.5 h-3.5" />
+                </button>
+                <span className="text-xs text-text w-11 shrink-0 text-center select-none">
+                  {Math.round(uiZoom * 100)}%
+                </span>
+                <button
+                  onClick={() => onUiZoomChange(uiZoom + 0.1)}
+                  className="p-1.5 shrink-0 rounded text-text-secondary hover:text-text hover:bg-surface-alt transition-colors"
+                  title="放大界面"
+                >
+                  <ZoomIn className="w-3.5 h-3.5" />
+                </button>
+                <div className="w-px h-4 bg-border mx-0.5 shrink-0" />
+                <button
+                  onClick={() => onUiZoomChange(1)}
+                  className="px-2 py-1 shrink-0 whitespace-nowrap rounded text-[11px] text-text-secondary hover:text-text hover:bg-surface-alt transition-colors"
+                  title="重置界面缩放为 100%"
+                >
+                  重置
+                </button>
+              </div>
             </div>
           )}
 

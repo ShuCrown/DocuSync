@@ -17,6 +17,9 @@
 
 body {
   margin: 0;
+  /* The UI zoom wrapper can be larger than the viewport (zoom out); prevent
+     scrollbars from appearing around it. */
+  overflow: hidden;
   font-family: 'Charter', 'Bitstream Charter', 'Songti SC', 'Noto Serif CJK SC',
     'Source Han Serif CN', 'Georgia', serif;
   -webkit-font-smoothing: antialiased;

@@ -5,6 +5,8 @@ import {
   Minus,
   X,
   MessageSquare,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react'
 import {
   type ChatPanelState,
@@ -12,9 +14,11 @@ import {
   CHAT_PANEL_FLOAT_MIN_HEIGHT,
   CHAT_PANEL_FLOAT_MAX_WIDTH,
   CHAT_PANEL_FLOAT_MAX_HEIGHT,
+  CHAT_PANEL_ZOOM_STEP,
 } from '../hooks/useChatPanel'
 import { useTauriChatWebview } from '../hooks/useTauriChatWebview'
 import { useTauriChatWindow } from '../hooks/useTauriChatWindow'
+import { useLogicalViewport } from '../hooks/useZoom'
 import { isTauri } from '../utils/tauri'
 import { ServiceIcon } from './SelectionToolbar'
 import type { AIService } from '../hooks/useAIServices'
@@ -118,6 +122,9 @@ export function ChatPanel({
   // overlay; only the browser still renders the full floating overlay.
   const isTauriFloating = isTauri() && isFloating
   const contentRef = useRef<HTMLDivElement | null>(null)
+  // Logical viewport (accounts for the global UI zoom wrapper) — read early so
+  // the hook is never called conditionally after the early returns below.
+  const { width: logicalW, height: logicalH } = useLogicalViewport()
   const startHeaderDrag = useHeaderDrag(panel)
   const startResize = useResizeDrag(panel)
   const { minimized, minimize, restore } = useTauriChatWindow(panel)
@@ -205,14 +212,14 @@ export function ChatPanel({
       ? {
           left: dockLeft ?? 6,
           top: 6,
-          width: dockWidth ?? (typeof window !== 'undefined' ? window.innerWidth - 12 : 0),
+          width: dockWidth ?? (typeof window !== 'undefined' ? logicalW - 12 : 0),
           bottom: 6,
         }
       : {
           right: 6,
           top: dockTop ?? 6,
           width: splitWidthOverride ?? panel.splitWidth,
-          height: dockHeight ?? (typeof window !== 'undefined' ? window.innerHeight - 12 : 0),
+          height: dockHeight ?? (typeof window !== 'undefined' ? logicalH - 12 : 0),
         }
 
   return (
@@ -230,6 +237,34 @@ export function ChatPanel({
         >
           {panel.currentTitle ?? 'AI Chat'}
         </span>
+
+        {/* Per-panel zoom — every chat scales to its own display ratio,
+            independent of the document-area zoom. The clamped range lives in
+            useChatPanel (persisted per panel). */}
+        <div className="flex items-center gap-0.5 shrink-0 rounded-md bg-surface-alt/50 px-0.5">
+          <button
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => panel.setZoom(panel.zoom - CHAT_PANEL_ZOOM_STEP)}
+            className="p-0.5 rounded text-text-secondary hover:text-text hover:bg-surface-alt transition-colors"
+            title="缩小此聊天"
+          >
+            <ZoomOut className="w-3 h-3" />
+          </button>
+          <span
+            className="text-[10px] text-text-secondary w-8 text-center select-none"
+            title={`此聊天缩放 ${Math.round(panel.zoom * 100)}%`}
+          >
+            {Math.round(panel.zoom * 100)}%
+          </span>
+          <button
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => panel.setZoom(panel.zoom + CHAT_PANEL_ZOOM_STEP)}
+            className="p-0.5 rounded text-text-secondary hover:text-text hover:bg-surface-alt transition-colors"
+            title="放大此聊天"
+          >
+            <ZoomIn className="w-3 h-3" />
+          </button>
+        </div>
 
         {/* Switch layout: split ↔ floating */}
         <button
@@ -281,13 +316,29 @@ export function ChatPanel({
             </div>
           )
         ) : panel.currentUrl ? (
-          <div className="p-3 w-full h-full">
-            <iframe
-              src={panel.currentUrl}
-              title={panel.currentTitle ?? 'AI Chat'}
-              className="w-full h-full border-0 rounded-lg"
-              allow="clipboard-read; clipboard-write; popup; popups-to-escape-sandbox"
-            />
+          <div className="absolute inset-0 overflow-hidden">
+            {/* Per-panel zoom wrapper: lays out at (100%/zoom × 100%/zoom)
+                logical size and scales up to fill the content area, so the
+                chat page reflows like browser zoom while the panel frame
+                keeps its size. Tauri uses the native webview zoom instead
+                (see useTauriChatWebview / set_ai_chat_webview_zoom). */}
+            <div
+              style={{
+                width: `calc(100% / ${panel.zoom})`,
+                height: `calc(100% / ${panel.zoom})`,
+                transform: `scale(${panel.zoom})`,
+                transformOrigin: 'top left',
+              }}
+            >
+              <div className="p-3 w-full h-full">
+                <iframe
+                  src={panel.currentUrl}
+                  title={panel.currentTitle ?? 'AI Chat'}
+                  className="w-full h-full border-0 rounded-lg"
+                  allow="clipboard-read; clipboard-write; popup; popups-to-escape-sandbox"
+                />
+              </div>
+            </div>
           </div>
         ) : (
           <div className="flex items-center justify-center h-full text-sm text-text-secondary">
@@ -432,6 +483,8 @@ function ChatFloatingPill({
 function useHeaderDrag(panel: ChatPanelState) {
   const rectRef = useRef(panel.floatingRect)
   useEffect(() => { rectRef.current = panel.floatingRect }, [panel.floatingRect])
+  // Logical viewport — the globally-zoomed app lays out in logical coordinates.
+  const { width: vw, height: vh } = useLogicalViewport()
 
   return useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -445,8 +498,8 @@ function useHeaderDrag(panel: ChatPanelState) {
       if (raf) return
       raf = requestAnimationFrame(() => {
         raf = 0
-        const maxX = Math.max(0, window.innerWidth - orig.width)
-        const maxY = Math.max(0, window.innerHeight - orig.height)
+        const maxX = Math.max(0, vw - orig.width)
+        const maxY = Math.max(0, vh - orig.height)
         const x = Math.max(0, Math.min(maxX, orig.x + (ev.clientX - startX)))
         const y = Math.max(0, Math.min(maxY, orig.y + (ev.clientY - startY)))
         panel.setFloatingRect({ ...orig, x, y })
@@ -460,7 +513,7 @@ function useHeaderDrag(panel: ChatPanelState) {
     }
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', stop)
-  }, [panel])
+  }, [panel, vw, vh])
 }
 
 // --- Floating-mode resize: drag an edge/corner to resize the overlay ---
@@ -493,6 +546,8 @@ function cursorFor(dir: ResizeDir): string {
 function useResizeDrag(panel: ChatPanelState) {
   const rectRef = useRef(panel.floatingRect)
   useEffect(() => { rectRef.current = panel.floatingRect }, [panel.floatingRect])
+  // Logical viewport — the globally-zoomed app lays out in logical coordinates.
+  const { width: vw, height: vh } = useLogicalViewport()
 
   return useCallback((e: React.MouseEvent, dir: ResizeDir) => {
     e.preventDefault()
@@ -515,7 +570,7 @@ function useResizeDrag(panel: ChatPanelState) {
         // Horizontal resize
         if (dir === 'e' || dir === 'se') {
           // Right edge moves, left edge (orig.x) stays fixed.
-          const maxW = Math.min(CHAT_PANEL_FLOAT_MAX_WIDTH, window.innerWidth - orig.x)
+          const maxW = Math.min(CHAT_PANEL_FLOAT_MAX_WIDTH, vw - orig.x)
           width = Math.max(CHAT_PANEL_FLOAT_MIN_WIDTH, Math.min(maxW, orig.width + dx))
         } else if (dir === 'w' || dir === 'sw') {
           // Left edge moves, right edge (orig.x + orig.width) stays fixed.
@@ -527,7 +582,7 @@ function useResizeDrag(panel: ChatPanelState) {
 
         // Vertical resize (only bottom edge directions)
         if (dir === 's' || dir === 'se' || dir === 'sw') {
-          const maxH = Math.min(CHAT_PANEL_FLOAT_MAX_HEIGHT, window.innerHeight - orig.y)
+          const maxH = Math.min(CHAT_PANEL_FLOAT_MAX_HEIGHT, vh - orig.y)
           height = Math.max(CHAT_PANEL_FLOAT_MIN_HEIGHT, Math.min(maxH, orig.height + dy))
         }
 
@@ -542,5 +597,5 @@ function useResizeDrag(panel: ChatPanelState) {
     }
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', stop)
-  }, [panel])
+  }, [panel, vw, vh])
 }

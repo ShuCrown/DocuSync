@@ -130,7 +130,9 @@ async fn create_ai_chat_webview(
     url: String,
     bounds: Bounds,
     overlay: Option<PaperOverlay>,
+    scale: f64,
 ) -> Result<(), String> {
+    let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
     let url: url::Url = url.parse().map_err(|e| format!("invalid url: {e}"))?;
     let (position, size) = transform_bounds(bounds);
 
@@ -139,6 +141,7 @@ async fn create_ai_chat_webview(
         wv.set_position(position).map_err(|e| e.to_string())?;
         wv.set_size(size).map_err(|e| e.to_string())?;
         wv.navigate(url).map_err(|e| e.to_string())?;
+        wv.set_zoom(scale).map_err(|e| e.to_string())?;
     } else {
         let mut builder = tauri::webview::WebviewBuilder::new(label.clone(), WebviewUrl::External(url));
         if let Some(overlay) = overlay {
@@ -147,9 +150,30 @@ async fn create_ai_chat_webview(
         let wv = window
             .add_child(builder, position, size)
             .map_err(|e| e.to_string())?;
+        // Match the frontend UI zoom so the chat page scales with the rest of
+        // the interface (the webview element itself is already sized at the
+        // scaled rect; its own zoom makes the page lay out at the logical size
+        // and render at the matching scale).
+        wv.set_zoom(scale).map_err(|e| e.to_string())?;
         guard.insert(label, wv);
     }
 
+    Ok(())
+}
+
+/// Apply ONE panel's zoom to its chat child webview (each chat scales
+/// independently). Called whenever a panel's zoom changes; webviews created
+/// later receive the scale at creation.
+#[tauri::command]
+async fn set_ai_chat_webview_zoom(
+    state: State<'_, AiChatWebview>,
+    label: String,
+    scale: f64,
+) -> Result<(), String> {
+    let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+    if let Some(wv) = state.0.lock().unwrap().get(&label).cloned() {
+        wv.set_zoom(scale).map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
@@ -266,7 +290,9 @@ async fn create_ai_chat_window(
     url: String,
     bounds: Bounds,
     overlay: Option<PaperOverlay>,
+    scale: f64,
 ) -> Result<(), String> {
+    let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
     let url: url::Url = url.parse().map_err(|e| format!("invalid url: {e}"))?;
 
     let mut guard = state.0.lock().unwrap();
@@ -280,6 +306,7 @@ async fn create_ai_chat_window(
         entry.win.show().map_err(|e| e.to_string())?;
         entry.win.set_focus().map_err(|e| e.to_string())?;
         entry.win.navigate(url).map_err(|e| e.to_string())?;
+        entry.win.set_zoom(scale).map_err(|e| e.to_string())?;
         return Ok(());
     }
 
@@ -304,6 +331,9 @@ async fn create_ai_chat_window(
     }
 
     let win = builder.build().map_err(|e| e.to_string())?;
+    // Per-panel zoom: the floating window's webview gets its own scale so the
+    // chat page matches this panel's zoom control.
+    win.set_zoom(scale).map_err(|e| e.to_string())?;
     guard.insert(
         label,
         AiChatWindowEntry {
@@ -330,6 +360,21 @@ async fn close_ai_chat_window(
             .internal_close
             .store(true, std::sync::atomic::Ordering::SeqCst);
         entry.win.close().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Apply ONE panel's zoom to its standalone floating chat window (per-panel
+/// independent scaling for floating mode).
+#[tauri::command]
+async fn set_ai_chat_window_zoom(
+    state: State<'_, AiChatWindow>,
+    label: String,
+    scale: f64,
+) -> Result<(), String> {
+    let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+    if let Some(entry) = state.0.lock().unwrap().get(&label) {
+        entry.win.set_zoom(scale).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -568,12 +613,63 @@ fn update_floating_visibility(app: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Global zoom shortcuts (Cmd/Ctrl + = / -, Cmd/Ctrl + 0): registered at the
+    // OS level so they fire even while the user's focus is inside an embedded
+    // chat webview (which swallows normal keydown events). The handler emits a
+    // `ui-zoom-shortcut` event the frontend listens for. Only acted upon while
+    // this app has a focused window.
+    let zoom_shortcut_plugin = tauri_plugin_global_shortcut::Builder::new()
+        .with_shortcuts([
+            "commandorcontrol+=",
+            "commandorcontrol+shift+=",
+            "commandorcontrol+numadd",
+            "commandorcontrol+-",
+            "commandorcontrol+numsubtract",
+            "commandorcontrol+0",
+        ])
+        .expect("static zoom shortcut accelerators must parse")
+        .with_handler(|app, shortcut, event| {
+            use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
+            if event.state != ShortcutState::Pressed {
+                return;
+            }
+            let m = |mods: Modifiers, code: Code| shortcut.matches(mods, code);
+            let zoom_in = m(Modifiers::CONTROL, Code::Equal)
+                || m(Modifiers::SUPER, Code::Equal)
+                || m(Modifiers::CONTROL | Modifiers::SHIFT, Code::Equal)
+                || m(Modifiers::SUPER | Modifiers::SHIFT, Code::Equal)
+                || m(Modifiers::CONTROL, Code::NumpadAdd)
+                || m(Modifiers::SUPER, Code::NumpadAdd);
+            let zoom_out = m(Modifiers::CONTROL, Code::Minus)
+                || m(Modifiers::SUPER, Code::Minus)
+                || m(Modifiers::CONTROL, Code::NumpadSubtract)
+                || m(Modifiers::SUPER, Code::NumpadSubtract);
+            let reset = m(Modifiers::CONTROL, Code::Digit0) || m(Modifiers::SUPER, Code::Digit0);
+            let action = if zoom_in {
+                Some("in")
+            } else if zoom_out {
+                Some("out")
+            } else if reset {
+                Some("reset")
+            } else {
+                None
+            };
+            if let Some(action) = action {
+                // Never hijack the combo while the user is in another app.
+                if app.get_focused_window().is_some() {
+                    let _ = app.emit("ui-zoom-shortcut", action);
+                }
+            }
+        })
+        .build();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(zoom_shortcut_plugin)
         .manage(AiChatWebview(std::sync::Mutex::new(HashMap::new())))
         .manage(AiChatWindow(std::sync::Mutex::new(HashMap::new())))
         .on_window_event(|window, event| {
@@ -604,10 +700,12 @@ pub fn run() {
             close_ai_chat_webview,
             hide_ai_chat_webview,
             show_ai_chat_webview,
+            set_ai_chat_webview_zoom,
             create_ai_chat_window,
             close_ai_chat_window,
             hide_ai_chat_window,
             show_ai_chat_window,
+            set_ai_chat_window_zoom,
             get_window_insets,
         ])
         .run(tauri::generate_context!())

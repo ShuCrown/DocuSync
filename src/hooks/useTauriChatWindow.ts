@@ -5,6 +5,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { isTauri } from '../utils/tauri'
 import type { ChatPanelState } from './useChatPanel'
 import { getPaperOverlay } from './useTauriChatWebview'
+import { useZoomScale } from './useZoom'
 
 /**
  * Standalone OS window per floating chat panel (Tauri only).
@@ -129,6 +130,18 @@ export function useTauriChatWindow(panel: ChatPanelState): FloatingWindowControl
   useEffect(() => {
     closeRef.current = panel.close
   }, [panel.close])
+  // Latest zoom values — read at window-creation time without re-running the
+  // create effect on every zoom change (zoom changes are handled by the
+  // separate `set_ai_chat_window_zoom` effect below).
+  const zoomRef = useRef(panel.zoom)
+  useEffect(() => {
+    zoomRef.current = panel.zoom
+  }, [panel.zoom])
+  const uiZoom = useZoomScale()
+  const uiZoomRef = useRef(uiZoom)
+  useEffect(() => {
+    uiZoomRef.current = uiZoom
+  }, [uiZoom])
 
   const minimize = useCallback(() => {
     if (!isTauri()) return
@@ -161,6 +174,7 @@ export function useTauriChatWindow(panel: ChatPanelState): FloatingWindowControl
             url,
             bounds,
             overlay: getPaperOverlay(),
+            scale: uiZoomRef.current * zoomRef.current,
           })
         })
         .then(() => {
@@ -180,6 +194,14 @@ export function useTauriChatWindow(panel: ChatPanelState): FloatingWindowControl
     // suppresses the echo-back `ai-chat-window-closed` event.
     invoke('close_ai_chat_window', { label }).catch(() => {})
   }, [panel.mode, panel.currentUrl, panel.floatingRect, id, label])
+
+  // Per-panel zoom: sync the floating window's native zoom whenever the
+  // panel's zoom control OR the global UI zoom changes (final = uiZoom ×
+  // panel.zoom; each chat still scales independently relative to the UI).
+  useEffect(() => {
+    if (!isTauri()) return
+    invoke('set_ai_chat_window_zoom', { label, scale: uiZoom * panel.zoom }).catch(() => {})
+  }, [label, uiZoom, panel.zoom])
 
   // Persist native move/resize, translate user-initiated close into
   // `panel.close()`, and mirror the native minimize state. Registered once for

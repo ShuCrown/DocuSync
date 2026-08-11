@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
+import { useLogicalViewport } from './useZoom'
 
 /**
  * Multi-instance chat panel state — uniform across browser and Tauri.
@@ -50,6 +51,9 @@ export interface ChatPanelState {
   dockDirection: ChatDockDirection
   splitWidth: number
   floatingRect: FloatingRect
+  /** Per-panel zoom of the chat content (1 = 100%). Independent from the
+   * document-area zoom — each chat can be scaled to its own display ratio. */
+  zoom: number
   switchToSplit: () => void
   switchToFloating: () => void
   collapse: () => void
@@ -57,6 +61,7 @@ export interface ChatPanelState {
   close: () => void
   setSplitWidth: (width: number) => void
   setFloatingRect: (rect: FloatingRect) => void
+  setZoom: (zoom: number) => void
   toggleDockDirection: () => void
 }
 
@@ -83,6 +88,7 @@ interface PanelData {
   title: string | null
   rect: FloatingRect
   dockRatio: number
+  zoom: number
 }
 
 const SPLIT_MIN = 300
@@ -105,6 +111,25 @@ const LS_SPLIT_WIDTH = 'docusync.chatpanel.splitWidth'
 const LS_LAST_MODE = 'docusync.chatpanel.lastMode'
 const LS_FLOAT_RECT_PREFIX = 'docusync.chatpanel.floatingRect.'
 const LS_DOCK_DIRECTION = 'docusync.chatpanel.dockDirection'
+const LS_PANEL_ZOOM_PREFIX = 'docusync.chatpanel.zoom.'
+
+export const CHAT_PANEL_ZOOM_MIN = 0.5
+export const CHAT_PANEL_ZOOM_MAX = 2
+export const CHAT_PANEL_ZOOM_STEP = 0.1
+
+function clampPanelZoom(z: number): number {
+  return Math.round(Math.max(CHAT_PANEL_ZOOM_MIN, Math.min(CHAT_PANEL_ZOOM_MAX, z)) * 10) / 10
+}
+
+function readPanelZoom(id: string): number {
+  try {
+    const v = Number(localStorage.getItem(LS_PANEL_ZOOM_PREFIX + id))
+    if (!Number.isFinite(v) || v <= 0) return 1
+    return clampPanelZoom(v)
+  } catch {
+    return 1
+  }
+}
 
 function readDockDirection(): ChatDockDirection {
   return localStorage.getItem(LS_DOCK_DIRECTION) === 'horizontal' ? 'horizontal' : 'vertical'
@@ -253,12 +278,13 @@ export function useChatPanel(): ChatPanelsState {
           : existing.mode
         return applyMode(prev, existing.id, target)
       }
+      const id = genId()
       const initialMode: ChatPanelMode = lastModeRef.current
       const offset = prev.length * FLOAT_CASCADE_STEP
       const rect = { ...FLOAT_DEFAULT, x: FLOAT_DEFAULT.x + offset, y: FLOAT_DEFAULT.y + offset }
       return normalizeDockRatios([
         ...prev,
-        { id: genId(), mode: initialMode, url, title, rect, dockRatio: 1 },
+        { id, mode: initialMode, url, title, rect, dockRatio: 1, zoom: readPanelZoom(id) },
       ])
     })
   }, [])
@@ -269,14 +295,22 @@ export function useChatPanel(): ChatPanelsState {
     persistSplitWidth(clamped)
   }, [persistSplitWidth])
 
-  // Keep every floating panel inside the viewport when the window resizes.
+  const updateZoom = useCallback((id: string, z: number) => {
+    const clamped = clampPanelZoom(z)
+    setData((prev) => prev.map((p) => (p.id === id ? { ...p, zoom: clamped } : p)))
+    try { localStorage.setItem(LS_PANEL_ZOOM_PREFIX + id, String(clamped)) } catch { /* ignore */ }
+  }, [])
+
+  // Keep every floating panel inside the (logical) viewport when the window
+  // resizes — logical size accounts for the global UI zoom wrapper.
+  const { width: vw, height: vh } = useLogicalViewport()
   useEffect(() => {
     const onResize = () => {
       setData((prev) =>
         prev.map((p) => {
           if (p.mode !== 'floating') return p
-          const maxX = Math.max(0, window.innerWidth - p.rect.width)
-          const maxY = Math.max(0, window.innerHeight - p.rect.height)
+          const maxX = Math.max(0, vw - p.rect.width)
+          const maxY = Math.max(0, vh - p.rect.height)
           const next = { ...p.rect, x: Math.min(p.rect.x, maxX), y: Math.min(p.rect.y, maxY) }
           if (next.x === p.rect.x && next.y === p.rect.y) return p
           persistRect(p.id, next)
@@ -286,7 +320,7 @@ export function useChatPanel(): ChatPanelsState {
     }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
-  }, [persistRect])
+  }, [persistRect, vw, vh])
 
   const panels: ChatPanelState[] = data.map((p) => ({
     id: p.id,
@@ -297,6 +331,7 @@ export function useChatPanel(): ChatPanelsState {
     dockDirection,
     splitWidth,
     floatingRect: p.rect,
+    zoom: p.zoom,
     switchToSplit: () => setPanelMode(p.id, 'split'),
     switchToFloating: () => setPanelMode(p.id, 'floating'),
     collapse: () => setPanelMode(p.id, 'collapsed'),
@@ -304,6 +339,7 @@ export function useChatPanel(): ChatPanelsState {
     close: () => removePanel(p.id),
     setSplitWidth,
     setFloatingRect: (r) => updateRect(p.id, r),
+    setZoom: (z) => updateZoom(p.id, z),
     toggleDockDirection,
   }))
 

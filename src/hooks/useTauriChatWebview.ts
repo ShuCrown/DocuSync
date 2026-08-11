@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { isTauri } from '../utils/tauri'
 import { getWindowInsets } from './useWindowInsets'
 import { hexToRgba } from '../utils/color'
+import { useZoomScale } from './useZoom'
 import type { ChatPanelState } from './useChatPanel'
 
 interface Bounds {
@@ -104,6 +105,10 @@ function useChatWebview(
    * false the webview is re-shown at its placeholder's current bounds.
    */
   hidden = false,
+  /** UI zoom scale — applied to the native webview so its content zooms with
+   * the rest of the interface (the webview element is sized at the scaled
+   * rect; this makes the page lay out at the logical size). */
+  scale = 1,
 ) {
   const appliedRef = useRef<Bounds | null>(null)
   const urlRef = useRef<string | null>(null)
@@ -141,6 +146,7 @@ function useChatWebview(
           url,
           bounds,
           overlay: getPaperOverlay(),
+          scale,
         })
         hiddenRef.current = false
       } else if (hiddenRef.current) {
@@ -154,7 +160,7 @@ function useChatWebview(
     } catch (err) {
       console.error(`[useTauriChatWebview] failed to sync webview (${label}):`, err)
     }
-  }, [url, label, contentRef])
+  }, [url, label, contentRef, scale])
 
   const schedule = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current)
@@ -234,6 +240,14 @@ function useChatWebview(
     }
   }, [mode, url, label, schedule, contentRef, layoutKey, hidden])
 
+  // Per-panel zoom: apply the native zoom to THIS webview only whenever the
+  // panel's zoom changes (each chat scales independently — the Rust command
+  // now takes a label instead of applying to every webview).
+  useEffect(() => {
+    if (!isTauri()) return
+    invoke('set_ai_chat_webview_zoom', { label, scale }).catch(() => {})
+  }, [label, scale])
+
   // Close the webview when the component unmounts.
   useEffect(() => {
     return () => {
@@ -258,6 +272,11 @@ export function useTauriChatWebview(
   layoutKey?: string,
   hidden = false,
 ) {
+  // Final zoom = global UI zoom × this panel's own zoom (the native webview
+  // is already sized at the globally-scaled visual rect; its native zoom must
+  // be the combined scale so the page renders at the same visual size as the
+  // CSS-zoomed React UI around it).
+  const uiZoom = useZoomScale()
   useChatWebview(
     panel.mode,
     panel.currentUrl,
@@ -265,5 +284,6 @@ export function useTauriChatWebview(
     contentRef,
     layoutKey ?? panel.dockDirection,
     hidden,
+    uiZoom * panel.zoom,
   )
 }

@@ -24,8 +24,11 @@ export function ShareDialog({ open, onClose, docId, fileName }: ShareDialogProps
   const [showCreate, setShowCreate] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
+  // Reset state when opened — intentional "reset on open" pattern, fires once
+  // per open (deps [open, docId]), not per render.
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setShowCreate(false)
       setCopiedId(null)
       setExpiresIn('24h')
@@ -67,7 +70,7 @@ export function ShareDialog({ open, onClose, docId, fileName }: ShareDialogProps
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/30 backdrop-blur-sm">
       <div className="bg-surface-card rounded-xl shadow-xl w-full max-w-md mx-4 max-h-[80vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">

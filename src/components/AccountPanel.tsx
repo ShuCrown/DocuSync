@@ -35,9 +35,11 @@ export function AccountPanel({
   const [success, setSuccess] = useState<string | null>(null)
   const [localError, setLocalError] = useState<string | null>(null)
 
-  // Reset state when opened
+  // Reset state when opened — intentional "reset on open" pattern, fires once
+  // per open (deps [open, email]), not per render.
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMode(email ? 'status' : 'bind')
       setInputEmail('')
       setCode('')
@@ -127,7 +129,7 @@ export function AccountPanel({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/30 backdrop-blur-sm" onClick={onClose}>
       <div
         className="bg-surface-card border border-border rounded-lg shadow-[0_8px_32px_rgba(0,0,0,0.12)] w-full max-w-md mx-4 overflow-hidden"
         onClick={(e) => e.stopPropagation()}
