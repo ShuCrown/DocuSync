@@ -1,24 +1,15 @@
 import {
   FileText,
-  Clock,
-  X,
   User,
   Settings,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
-import { getCategoryLabel } from '../utils/fileType'
-import { formatTime } from '../utils/formatTime'
-import type { FileRecord } from '../hooks/useFileHistory'
 interface LayoutProps {
   children: React.ReactNode
   currentFileName?: string | null
   onBack?: () => void
-  history?: FileRecord[]
-  onHistorySelect?: (record: FileRecord) => void
-  onHistoryRemove?: (id: string) => void
-  onHistoryClear?: () => void
   email?: string | null
   onAccountOpen?: () => void
   onSettingsOpen?: () => void
@@ -36,10 +27,6 @@ export function Layout({
   children,
   currentFileName,
   onBack,
-  history = [],
-  onHistorySelect,
-  onHistoryRemove,
-  onHistoryClear,
   email,
   onAccountOpen,
   onSettingsOpen,
@@ -49,22 +36,8 @@ export function Layout({
   onDocZoomOut,
   onDocZoomReset,
 }: LayoutProps) {
-  const [historyOpen, setHistoryOpen] = useState(false)
   const [zoomOpen, setZoomOpen] = useState(false)
-  const historyRef = useRef<HTMLDivElement>(null)
   const zoomRef = useRef<HTMLDivElement>(null)
-
-  // Close history dropdown on click outside
-  useEffect(() => {
-    if (!historyOpen) return
-    const handler = (e: MouseEvent) => {
-      if (historyRef.current && !historyRef.current.contains(e.target as Node)) {
-        setHistoryOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [historyOpen])
 
   // Close zoom popover on click outside
   useEffect(() => {
@@ -130,7 +103,9 @@ export function Layout({
                   </button>
 
                   {zoomOpen && (
-                    <div className="absolute right-0 top-full mt-1 z-50 flex items-center gap-1 p-1 w-max flex-nowrap bg-surface-card border border-border rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.12)]">
+                    <div className="absolute right-0 top-full mt-1 z-50 flex items-center gap-1 p-1 w-max flex-nowrap bg-surface-card border border-border rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.12)]"
+                      style={{ transformOrigin: 'top right', animation: 'docusync-pop-in 140ms ease-out' }}
+                    >
                       <button
                         onClick={() => { onDocZoomOut?.() }}
                         className="p-1.5 shrink-0 rounded-md text-text-secondary hover:text-text hover:bg-surface-alt transition-colors"
@@ -156,79 +131,6 @@ export function Layout({
                       >
                         重置
                       </button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* History dropdown */}
-              {history.length > 0 && (
-                <div className="relative" ref={historyRef}>
-                  <button
-                    onClick={() => setHistoryOpen((v) => !v)}
-                    className={`
-                      p-2 rounded-md transition-colors
-                      ${historyOpen
-                        ? 'bg-surface-alt text-text'
-                        : 'text-text-secondary hover:text-text hover:bg-surface-alt/60'
-                      }
-                    `}
-                    title="历史记录"
-                  >
-                    <Clock className="w-4.5 h-4.5" />
-                  </button>
-
-                  {historyOpen && (
-                    <div className="absolute right-0 top-full mt-1 w-80 max-h-[60vh] bg-surface-card border border-border rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.1)] overflow-hidden flex flex-col">
-                      {/* Dropdown header */}
-                      <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-surface-alt/40">
-                        <span className="text-xs font-medium text-text-secondary">最近查看</span>
-                        {onHistoryClear && (
-                          <button
-                            onClick={() => { onHistoryClear(); setHistoryOpen(false) }}
-                            className="text-[11px] text-text-secondary hover:text-error transition-colors"
-                          >
-                            清空
-                          </button>
-                        )}
-                      </div>
-
-                      {/* History list */}
-                      <div className="overflow-y-auto divide-y divide-border">
-                        {history.map((record) => (
-                          <div
-                            key={record.id}
-                            className="flex items-center gap-2.5 px-3 py-2.5 hover:bg-surface-alt/50 transition-colors group"
-                          >
-                            <button
-                              onClick={() => {
-                                onHistorySelect?.(record)
-                                setHistoryOpen(false)
-                              }}
-                              className="flex-1 min-w-0 text-left"
-                            >
-                              <p className="text-sm text-text truncate">{record.name}</p>
-                              <p className="text-[11px] text-text-secondary mt-0.5">
-                                <span className="inline-block px-1 py-0.5 bg-surface-alt rounded text-[10px] mr-1">
-                                  {getCategoryLabel(record.category)}
-                                </span>
-                                {formatTime(record.timestamp)}
-                              </p>
-                            </button>
-                            {onHistoryRemove && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  onHistoryRemove(record.id)
-                                }}
-                                className="p-0.5 rounded text-text-secondary/40 hover:text-error opacity-0 group-hover:opacity-100 transition-all"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
                     </div>
                   )}
                 </div>

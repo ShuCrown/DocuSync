@@ -44,3 +44,4 @@ docs/
 src-tauri/target/
 src-tauri/gen/schemas/
 .workbuddy
+.trae-*

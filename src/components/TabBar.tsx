@@ -1,6 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import {
-  FileText,
   X,
   Plus,
   Columns2,
@@ -9,10 +8,13 @@ import {
   Upload,
   Clock,
   Loader2,
+  Layers,
+  SquareX,
 } from 'lucide-react'
 import type { Tab, SplitDirection } from '../hooks/useEditorLayout'
 import type { FileRecord } from '../hooks/useFileHistory'
 import { getCategoryLabel } from '../utils/fileType'
+import { FileTypeIcon } from '../utils/fileIcon'
 import { formatTime } from '../utils/formatTime'
 
 interface TabBarProps {
@@ -28,6 +30,8 @@ interface TabBarProps {
   pickerBusy?: boolean
   onSetActiveTab: (tabId: string) => void
   onCloseTab: (tabId: string) => void
+  /** Close every tab in this leaf except the given one (context menu). */
+  onCloseOtherTabs: (tabId: string) => void
   onSplitLeaf: (direction: SplitDirection) => void
   onCloseLeaf: () => void
   onShare: (docId: string, fileName: string) => void
@@ -55,6 +59,7 @@ export function TabBar({
   pickerBusy,
   onSetActiveTab,
   onCloseTab,
+  onCloseOtherTabs,
   onSplitLeaf,
   onCloseLeaf,
   onShare,
@@ -66,6 +71,10 @@ export function TabBar({
   const plusBtnRef = useRef<HTMLButtonElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [plusRect, setPlusRect] = useState<{ top: number; right: number } | null>(null)
+
+  // Right-click context menu state: which tab + where the menu was opened.
+  const [ctxMenu, setCtxMenu] = useState<{ tabId: string; x: number; y: number } | null>(null)
+  const ctxMenuRef = useRef<HTMLDivElement>(null)
 
   // Close picker on outside click / ESC.
   useEffect(() => {
@@ -88,6 +97,45 @@ export function TabBar({
       document.removeEventListener('keydown', onKey)
     }
   }, [pickerOpen])
+
+  // Context menu: close on outside left-click / ESC. Right-click (button 2)
+  // is ignored here — the tab's own onContextMenu replaces the menu instead.
+  useEffect(() => {
+    if (!ctxMenu) return
+    const onDown = (e: MouseEvent) => {
+      if (e.button === 2) return
+      if (ctxMenuRef.current && !ctxMenuRef.current.contains(e.target as Node)) {
+        setCtxMenu(null)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setCtxMenu(null)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [ctxMenu])
+
+  // Keep the menu inside the viewport after it is laid out.
+  useLayoutEffect(() => {
+    const el = ctxMenuRef.current
+    if (!ctxMenu || !el) return
+    const rect = el.getBoundingClientRect()
+    const maxX = window.innerWidth - rect.width - 4
+    const maxY = window.innerHeight - rect.height - 4
+    if (rect.left > maxX || rect.top > maxY) {
+      el.style.left = `${Math.max(4, maxX)}px`
+      el.style.top = `${Math.max(4, maxY)}px`
+    }
+  }, [ctxMenu])
+
+  const handleCtxAction = (action: () => void) => {
+    action()
+    setCtxMenu(null)
+  }
 
   const openPicker = () => {
     const rect = plusBtnRef.current?.getBoundingClientRect()
@@ -135,6 +183,10 @@ export function TabBar({
               <div
                 key={tab.id}
                 onClick={() => onSetActiveTab(tab.id)}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  setCtxMenu({ tabId: tab.id, x: e.clientX, y: e.clientY })
+                }}
                 title={tab.file.file.name}
                 className={`group flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 border-r border-border/40 cursor-pointer max-w-[220px] min-w-[120px] transition-colors ${
                   isActive
@@ -142,7 +194,7 @@ export function TabBar({
                     : 'bg-surface-alt/40 text-text-secondary hover:bg-surface-alt/80'
                 }`}
               >
-                <FileText className="w-3 h-3 shrink-0 text-primary" />
+                <FileTypeIcon category={tab.file.category} className="w-3 h-3 shrink-0" />
                 <span className="text-xs font-medium truncate flex-1">{tab.file.file.name}</span>
                 <button
                   onClick={(e) => {
@@ -221,7 +273,12 @@ export function TabBar({
         <div
           ref={pickerRef}
           className="fixed z-50 w-72 bg-surface-card border border-border rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.12)] overflow-hidden flex flex-col"
-          style={{ top: plusRect.top, right: plusRect.right }}
+          style={{
+            top: plusRect.top,
+            right: plusRect.right,
+            transformOrigin: 'top right',
+            animation: 'docusync-pop-in 140ms ease-out',
+          }}
         >
           <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-surface-alt/40">
             <span className="text-xs font-medium text-text-secondary">打开文档</span>
@@ -248,7 +305,7 @@ export function TabBar({
                   disabled={pickerBusy}
                   className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-surface-alt/50 transition-colors text-left disabled:opacity-50"
                 >
-                  <FileText className="w-3.5 h-3.5 text-text-secondary shrink-0" />
+                  <FileTypeIcon category={record.category} className="w-3.5 h-3.5 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs text-text truncate">{record.name}</p>
                     <p className="text-[10px] text-text-secondary mt-0.5">
@@ -272,6 +329,52 @@ export function TabBar({
             >
               <Upload className="w-3.5 h-3.5" />
               上传新文件
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Right-click context menu on a tab */}
+      {ctxMenu && (
+        <div
+          ref={ctxMenuRef}
+          role="menu"
+          className="fixed z-50 w-36 overflow-hidden bg-surface-card border border-border/80 rounded-lg shadow-[0_12px_32px_rgba(0,0,0,0.18),0_2px_8px_rgba(0,0,0,0.08)] ring-1 ring-black/[0.04]"
+          style={{
+            top: ctxMenu.y,
+            left: ctxMenu.x,
+            transformOrigin: 'top left',
+            animation: 'docusync-pop-in 120ms ease-out',
+          }}
+        >
+          <div className="py-1">
+            <button
+              role="menuitem"
+              onClick={() => handleCtxAction(() => onCloseTab(ctxMenu.tabId))}
+              className="w-full flex items-center gap-2 px-2.5 py-[7px] text-[13px] text-text hover:bg-surface-alt transition-colors text-left group"
+            >
+              <X className="w-3.5 h-3.5 text-text-secondary shrink-0 group-hover:text-error" />
+              关闭当前
+            </button>
+            <button
+              role="menuitem"
+              onClick={() => handleCtxAction(() => onCloseOtherTabs(ctxMenu.tabId))}
+              disabled={tabs.length <= 1}
+              className="w-full flex items-center gap-2 px-2.5 py-[7px] text-[13px] text-text hover:bg-surface-alt transition-colors text-left group disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-default"
+            >
+              <Layers className="w-3.5 h-3.5 text-text-secondary shrink-0 group-hover:text-primary" />
+              关闭其他
+            </button>
+
+            <div className="my-1 h-px bg-border/50" />
+
+            <button
+              role="menuitem"
+              onClick={() => handleCtxAction(onCloseLeaf)}
+              className="w-full flex items-center gap-2 px-2.5 py-[7px] text-[13px] text-text hover:bg-error/10 hover:text-error transition-colors text-left group"
+            >
+              <SquareX className="w-3.5 h-3.5 text-text-secondary shrink-0 group-hover:text-error" />
+              关闭所有
             </button>
           </div>
         </div>

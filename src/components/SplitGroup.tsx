@@ -22,6 +22,7 @@ import { FileHistory } from './FileHistory'
 export interface SplitGroupActions {
   setActiveTab: (tabId: string) => void
   closeTab: (tabId: string) => void
+  closeOtherTabs: (tabId: string) => void
   setActiveLeaf: (leafId: string) => void
   splitLeaf: (leafId: string, direction: SplitDirection) => void
   closeLeaf: (leafId: string) => void
@@ -132,6 +133,7 @@ const LeafView = memo(function LeafView({
         pickerBusy={busy}
         onSetActiveTab={actions.setActiveTab}
         onCloseTab={actions.closeTab}
+        onCloseOtherTabs={actions.closeOtherTabs}
         onSplitLeaf={(dir) => actions.splitLeaf(leaf.id, dir)}
         onCloseLeaf={() => actions.closeLeaf(leaf.id)}
         onShare={onShare}

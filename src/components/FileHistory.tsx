@@ -1,5 +1,6 @@
-import { FileText, Clock, X } from 'lucide-react'
+import { Clock, X } from 'lucide-react'
 import { getCategoryLabel } from '../utils/fileType'
+import { FileTypeIcon } from '../utils/fileIcon'
 import { formatTime } from '../utils/formatTime'
 import type { FileRecord } from '../hooks/useFileHistory'
 
@@ -40,7 +41,7 @@ export function FileHistory({ history, onSelect, onRemove, onClear }: FileHistor
             key={record.id}
             className="flex items-center gap-3 px-4 py-3 hover:bg-surface-alt/50 transition-colors group"
           >
-            <FileText className="w-5 h-5 text-primary shrink-0" />
+            <FileTypeIcon category={record.category} className="w-5 h-5 shrink-0" />
             <button
               onClick={() => onSelect(record)}
               className="flex-1 min-w-0 text-left"

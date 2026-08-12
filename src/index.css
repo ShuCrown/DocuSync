@@ -153,12 +153,18 @@ body {
 /* Inside the zoom layer, viewer-internal scrollers are disabled: their
    scrollbar would shrink with the transform and they'd fight the outer
    scroller for the wheel gesture (WKWebView nested-scroller bug). Content
-   overflows the zoom layer and the outer .doc-zoom-scroller scrolls it. */
+   overflows the zoom layer and the outer .doc-zoom-scroller scrolls it.
+
+   `min-height: 100%` makes short documents still fill the pane: the zoom
+   layer enforces min-height = viewport / zoom (see ZoomScroller), its parent
+   chain is definite, so the percentage resolves and the viewer's card
+   background stretches to the bottom of the visible area. */
 .doc-zoom-layer .office-doc,
 .doc-zoom-layer .markdown-body,
 .doc-zoom-layer .pdf-scroller {
   overflow: visible !important;
   height: auto !important;
+  min-height: 100%;
 }
 
 .doc-zoom-layer .office-doc [class*="overflow-auto"],
@@ -461,5 +467,18 @@ body {
   to {
     opacity: 1;
     transform: translate(-50%, 0);
+  }
+}
+
+/* Dropdown / popover entrance (context menu, picker popover). The element
+   sets its own transform-origin so the menu "grows" from its anchor corner. */
+@keyframes docusync-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }

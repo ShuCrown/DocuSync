@@ -38,6 +38,8 @@ export interface EditorLayoutActions {
   openTab: (file: UploadedFile, leafId?: string | null) => string
   /** Close a tab by id; collapses its leaf if it becomes empty. */
   closeTab: (tabId: string) => void
+  /** Close every tab in the same leaf except the given one. */
+  closeOtherTabs: (tabId: string) => void
   /** Switch the visible tab inside a leaf. */
   setActiveTab: (tabId: string) => void
   /** Focus a leaf (becomes the target for new tabs / selection toolbar). */
@@ -185,6 +187,19 @@ export function useEditorLayout(): EditorLayout {
     })
   }, [])
 
+  const closeOtherTabs = useCallback((tabId: string) => {
+    setRoot((prev) => {
+      if (prev === null) return prev
+      const leaf = findLeafByTab(prev, tabId)
+      if (leaf === null || leaf.tabs.length <= 1) return prev
+      return updateLeaf(prev, leaf.id, (l) => ({
+        ...l,
+        tabs: l.tabs.filter((t) => t.id === tabId),
+        activeTabId: tabId,
+      }))
+    })
+  }, [])
+
   const setActiveTab = useCallback((tabId: string) => {
     setRoot((prev) => {
       if (prev === null) return prev
@@ -291,6 +306,7 @@ export function useEditorLayout(): EditorLayout {
       activeLeafId,
       openTab,
       closeTab,
+      closeOtherTabs,
       setActiveTab,
       setActiveLeaf,
       splitLeaf,
@@ -301,7 +317,7 @@ export function useEditorLayout(): EditorLayout {
       replaceTab,
       closeAll,
     }),
-    [root, activeLeafId, openTab, closeTab, setActiveTab, setActiveLeaf, splitLeaf, closeLeaf, swapChildren, toggleDirection, setRatio, replaceTab, closeAll],
+    [root, activeLeafId, openTab, closeTab, closeOtherTabs, setActiveTab, setActiveLeaf, splitLeaf, closeLeaf, swapChildren, toggleDirection, setRatio, replaceTab, closeAll],
   )
 }
 

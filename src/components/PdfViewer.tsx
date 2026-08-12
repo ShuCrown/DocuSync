@@ -140,7 +140,7 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
   const zoomOut = () => setScale((s) => Math.max(0.5, s - 0.25))
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1">
       {/* Toolbar */}
       <div className="flex items-center justify-center gap-3 py-2 px-4 bg-surface-card border-b border-border shrink-0">
         <button onClick={zoomOut} className="p-1.5 hover:text-primary transition-colors text-text-secondary">

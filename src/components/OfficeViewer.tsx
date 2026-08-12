@@ -289,7 +289,7 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
   if (category === 'word') {
     return (
       <>
-        <div className="relative office-doc bg-surface-card overflow-y-auto h-full">
+        <div className="relative office-doc bg-surface-card overflow-y-auto flex-1">
           <div ref={containerRef} className="docx-render-container py-4 px-10" />
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center p-12 text-text-secondary bg-surface-card/80">
@@ -330,7 +330,7 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
   if (category === 'powerpoint') {
     return (
       <div
-        className="office-doc p-8 bg-surface-card overflow-y-auto overflow-x-hidden h-full"
+        className="office-doc p-8 bg-surface-card overflow-y-auto overflow-x-hidden flex-1"
         dangerouslySetInnerHTML={{
           __html: DOMPurify.sanitize(pptHtml, { ADD_ATTR: ['class', 'style'] }),
         }}
@@ -357,10 +357,13 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
   }
 
   return (
-    <div className="flex flex-col h-full bg-surface-card">
-      {/* Table area */}
+    <div className="flex flex-col flex-1 bg-surface-card">
+      {/* Table area — the sheet canvas fills the whole pane (min-h-full on a
+          definite-height flex parent), so a small sheet no longer sits
+          squeezed at the top; the white sheet background covers the rest,
+          with the data grid anchored top-left like native Excel. */}
       <div className="flex-1 overflow-auto p-4 pb-1">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto min-h-full bg-white shadow-[0_1px_4px_rgba(0,0,0,0.08)]">
           <table className="w-full text-sm border-collapse">
             <tbody>
               {activeData.map((row, rowIdx) => (

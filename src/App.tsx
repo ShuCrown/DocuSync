@@ -111,7 +111,7 @@ export default function App() {
   const { services } = useAIServices()
   const {
     root, activeLeafId,
-    openTab, closeTab, setActiveTab, setActiveLeaf,
+    openTab, closeTab, closeOtherTabs, setActiveTab, setActiveLeaf,
     splitLeaf, closeLeaf, swapChildren, toggleDirection, setRatio,
     closeAll,
   } = useEditorLayout()
@@ -373,13 +373,14 @@ export default function App() {
   const splitGroupActions: SplitGroupActions = useMemo(() => ({
     setActiveTab,
     closeTab,
+    closeOtherTabs,
     setActiveLeaf,
     splitLeaf,
     closeLeaf,
     swapChildren,
     toggleDirection,
     setRatio,
-  }), [setActiveTab, closeTab, setActiveLeaf, splitLeaf, closeLeaf, swapChildren, toggleDirection, setRatio])
+  }), [setActiveTab, closeTab, closeOtherTabs, setActiveLeaf, splitLeaf, closeLeaf, swapChildren, toggleDirection, setRatio])
 
   const handleShareForLeaf = useCallback((docId: string, fileName: string) => {
     handleShareOpen(docId, fileName)
@@ -565,10 +566,6 @@ export default function App() {
         <Layout
           currentFileName={activeFile?.file.name ?? null}
           onBack={handleClear}
-          history={history}
-          onHistorySelect={handleHistorySelect}
-          onHistoryRemove={removeHistory}
-          onHistoryClear={clearHistory}
           email={account.email}
           onAccountOpen={localMode ? undefined : handleAccountOpen}
           onSettingsOpen={handleSettingsOpen}

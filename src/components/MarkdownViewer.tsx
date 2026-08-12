@@ -20,7 +20,7 @@ export function MarkdownViewer({ content, onTextExtracted }: MarkdownViewerProps
   }, [content])
 
   return (
-    <div className="markdown-body p-6 bg-surface-card overflow-auto h-full">
+    <div className="markdown-body p-6 bg-surface-card overflow-auto flex-1">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeHighlight]}

@@ -29,7 +29,7 @@ export function DocumentViewer({ uploaded, onTextExtracted }: DocumentViewerProp
   switch (category) {
     case 'pdf':
       return (
-        <div className="h-full">
+        <div className="h-full flex-1 flex flex-col">
           <Suspense fallback={<ViewerLoading />}>
             <PdfViewer url={url} onTextExtracted={onTextExtracted} />
           </Suspense>
@@ -38,7 +38,7 @@ export function DocumentViewer({ uploaded, onTextExtracted }: DocumentViewerProp
 
     case 'markdown':
       return (
-        <div className="h-full">
+        <div className="h-full flex-1 flex flex-col">
           <Suspense fallback={<ViewerLoading />}>
             <MarkdownViewerWrapper file={file} onTextExtracted={onTextExtracted} />
           </Suspense>
@@ -49,7 +49,7 @@ export function DocumentViewer({ uploaded, onTextExtracted }: DocumentViewerProp
     case 'excel':
     case 'powerpoint':
       return (
-        <div className="h-full">
+        <div className="h-full flex-1 flex flex-col">
           <Suspense fallback={<ViewerLoading />}>
             <OfficeViewer
               file={file}
