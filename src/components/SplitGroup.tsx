@@ -209,7 +209,14 @@ function Divider({
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!dragging.current || !containerRef.current) return
-      const rect = containerRef.current.getBoundingClientRect()
+      // Measure the PANE container (the divider's parent flex box), NOT the
+      // divider's own 2px track. The divider is `w-2`/`h-2`, so its own rect
+      // is only 2px across — computing against it makes the ratio snap to the
+      // 0.2/0.8 clamps on any tiny movement and the panes jump back and forth
+      // (visible flicker while dragging).
+      const container = containerRef.current.parentElement
+      if (!container) return
+      const rect = container.getBoundingClientRect()
       const total = direction === 'horizontal' ? rect.width : rect.height
       if (total <= 0) return
       const pos = direction === 'horizontal' ? e.clientX - rect.left : e.clientY - rect.top
