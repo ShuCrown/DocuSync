@@ -75,7 +75,7 @@ export function FileHistory({ history, onSelect, onRemove, onClear, onDelete, al
                 <span className="inline-block px-1.5 py-0.5 bg-surface-alt rounded text-[11px] mr-1.5">
                   {getCategoryLabel(record.category)}
                 </span>
-                {formatSize(record.size)} · {formatTime(record.timestamp)}
+                {formatSize(record.size)} · 上次：{formatTime(record.openedAt ?? record.timestamp)}
               </p>
             </button>
             <button

@@ -332,7 +332,7 @@ export function TabBar({
                         <span className="inline-block px-1 py-0.5 bg-surface-alt rounded text-[9px] mr-1">
                           {getCategoryLabel(record.category)}
                         </span>
-                        {formatTime(record.timestamp)}
+                        上次：{formatTime(record.openedAt ?? record.timestamp)}
                       </p>
                     </div>
                   </button>

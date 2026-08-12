@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useRef } from 'react'
-import { ArrowLeftRight, Columns2, Rows2 } from 'lucide-react'
+import { ArrowLeftRight, Columns2, Rows2, Loader2 } from 'lucide-react'
 import type {
   SplitNode,
   LeafNode,
@@ -151,7 +151,7 @@ const LeafView = memo(function LeafView({
         onPickFile={handlePickFile}
         onPickHistory={handlePickHistory}
       />
-      <div className="flex-1 min-h-0 flex flex-col">
+      <div className="flex-1 min-h-0 flex flex-col relative">
         {leaf.tabs.length === 0 ? (
           // Empty leaf — inline picker (compact upload + history list).
           <div className="flex-1 overflow-auto flex items-start justify-center px-4 py-6">
@@ -178,6 +178,18 @@ const LeafView = memo(function LeafView({
               visible={tab.id === leaf.activeTabId}
             />
           ))
+        )}
+
+        {/* Busy overlay — same look as the home-page loading mask: shown while
+            this leaf downloads/uploads a document, so the "正在加载" state is
+            obvious instead of only a small spinner on the + icon. */}
+        {busy && (
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/25 backdrop-blur-[2px]">
+            <div className="bg-surface-card rounded-xl px-7 py-6 shadow-xl flex flex-col items-center gap-3">
+              <Loader2 className="w-8 h-8 text-primary animate-spin" />
+              <div className="text-sm text-text font-medium">正在加载文件…</div>
+            </div>
+          </div>
         )}
       </div>
     </div>

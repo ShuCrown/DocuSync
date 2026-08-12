@@ -7,7 +7,10 @@ export interface FileRecord {
   name: string
   size: number
   category: FileCategory
+  /** Creation time (server) in ms. */
   timestamp: number
+  /** Last time this document was opened on this device (ms), if any. */
+  openedAt?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -37,6 +40,40 @@ function saveHiddenIds(ids: Set<string>) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Locally tracked "last opened" timestamps (docId → ts). 最近查看 sorts by
+// these, so reopening an old document bumps it to the top — the server list
+// only knows created_at and would otherwise keep the original order.
+// ---------------------------------------------------------------------------
+
+const OPENED_KEY = 'docusync.opened-order'
+
+function loadOpenedOrder(): Record<string, number> {
+  try {
+    return JSON.parse(localStorage.getItem(OPENED_KEY) ?? '{}') as Record<string, number>
+  } catch {
+    return {}
+  }
+}
+
+function saveOpenedOrder(order: Record<string, number>) {
+  try {
+    localStorage.setItem(OPENED_KEY, JSON.stringify(order))
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+/** Sort: recently opened first (desc), then by creation time (desc). */
+function sortByOpened(records: FileRecord[], order: Record<string, number>): FileRecord[] {
+  return [...records].sort((a, b) => {
+    const ao = order[a.id] ?? -1
+    const bo = order[b.id] ?? -1
+    if (ao !== bo) return bo - ao
+    return b.timestamp - a.timestamp
+  })
+}
+
 export function useFileHistory() {
   /** Visible records (all uploaded docs minus locally hidden ones). */
   const [history, setHistory] = useState<FileRecord[]>([])
@@ -45,18 +82,23 @@ export function useFileHistory() {
   const [allDocuments, setAllDocuments] = useState<FileRecord[]>([])
   const [loading, setLoading] = useState(true)
   const hiddenIdsRef = useRef<Set<string>>(loadHiddenIds())
+  const openedOrderRef = useRef<Record<string, number>>(loadOpenedOrder())
 
   const fetchHistory = useCallback(async () => {
     try {
       setLoading(true)
       const docs = await api.listDocuments()
-      const records: FileRecord[] = docs.map((d) => ({
-        id: d.id,
-        name: d.name,
-        size: d.size,
-        category: d.category as FileCategory,
-        timestamp: d.created_at * 1000, // server returns unix seconds
-      }))
+      const records: FileRecord[] = sortByOpened(
+        docs.map((d) => ({
+          id: d.id,
+          name: d.name,
+          size: d.size,
+          category: d.category as FileCategory,
+          timestamp: d.created_at * 1000, // server returns unix seconds
+          openedAt: openedOrderRef.current[d.id],
+        })),
+        openedOrderRef.current,
+      )
       setAllDocuments(records)
       setHistory(records.filter((r) => !hiddenIdsRef.current.has(r.id)))
     } catch (err) {
@@ -100,8 +142,25 @@ export function useFileHistory() {
     await api.deleteDocument(id)
     hiddenIdsRef.current.delete(id)
     saveHiddenIds(hiddenIdsRef.current)
+    delete openedOrderRef.current[id]
+    saveOpenedOrder(openedOrderRef.current)
     setAllDocuments((prev) => prev.filter((r) => r.id !== id))
     setHistory((prev) => prev.filter((r) => r.id !== id))
+  }, [])
+
+  /** Record that a document was just opened — bumps it to the top of 最近查看
+      (and of the all-files list) immediately, persisting the order locally. */
+  const markOpened = useCallback((id: string) => {
+    openedOrderRef.current = { ...openedOrderRef.current, [id]: Date.now() }
+    saveOpenedOrder(openedOrderRef.current)
+    const bumpToFront = (list: FileRecord[]) => {
+      const target = list.find((r) => r.id === id)
+      if (!target) return list
+      const updated = { ...target, openedAt: openedOrderRef.current[id] }
+      return [updated, ...list.filter((r) => r.id !== id)]
+    }
+    setAllDocuments((prev) => bumpToFront(prev))
+    setHistory((prev) => bumpToFront(prev))
   }, [])
 
   return {
@@ -112,6 +171,7 @@ export function useFileHistory() {
     removeHistory,
     clearHistory,
     deleteDocument,
+    markOpened,
     refresh: fetchHistory,
   }
 }

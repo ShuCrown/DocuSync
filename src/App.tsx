@@ -106,7 +106,7 @@ function clampUiZoom(z: number): number {
 
 export default function App() {
   const { uploadedFile, error: uploadError, uploading, downloading, downloadProgress, handleFile, restoreFromRecord } = useFileUpload()
-  const { history, allDocuments, addHistory, removeHistory, clearHistory, deleteDocument, refresh: refreshHistory } = useFileHistory()
+  const { history, allDocuments, addHistory, removeHistory, clearHistory, deleteDocument, markOpened, refresh: refreshHistory } = useFileHistory()
   const account = useAccount()
   const { services } = useAIServices()
   const {
@@ -249,8 +249,9 @@ export default function App() {
     if (uploadedFile && uploadedFile !== lastOpenedRef.current) {
       lastOpenedRef.current = uploadedFile
       openTab(uploadedFile)
+      if (uploadedFile.docId) markOpened(uploadedFile.docId)
     }
-  }, [uploadedFile, openTab])
+  }, [uploadedFile, openTab, markOpened])
 
   // Ref mirror of openTab so the TabBar picker callbacks stay stable (don't
   // re-create when activeLeafId changes). Without this, every leaf-focus
@@ -288,7 +289,8 @@ export default function App() {
 
   const handleHistorySelect = useCallback(async (record: FileRecord) => {
     await restoreFromRecord(record)
-  }, [restoreFromRecord])
+    markOpened(record.id)
+  }, [restoreFromRecord, markOpened])
 
   const handleAccountOpen = useCallback(() => {
     setAccountOpen(true)
@@ -334,6 +336,7 @@ export default function App() {
       const result = await api.uploadDocument(file)
       openTabRef.current({ file, category, url, docId: result.id }, leafId)
       addHistory(file, 'unknown')
+      markOpened(result.id)
     } catch (err) {
       console.error('TabBar 上传失败:', err)
       URL.revokeObjectURL(url)
@@ -341,7 +344,7 @@ export default function App() {
     } finally {
       setBusyLeafId(null)
     }
-  }, [addHistory])
+  }, [addHistory, markOpened])
 
   // TabBar + picker: reopen a history record into a specific leaf.
   const handlePickHistoryInLeaf = useCallback(async (leafId: string, record: FileRecord) => {
@@ -356,13 +359,14 @@ export default function App() {
       const file = new File([blob], record.name, { type: blob.type })
       const url = URL.createObjectURL(file)
       openTabRef.current({ file, category: record.category, url, docId: record.id }, leafId)
+      markOpened(record.id)
     } catch (err) {
       console.error('TabBar 历史下载失败:', err)
       setPickerError(err instanceof Error ? err.message : '加载历史文件失败')
     } finally {
       setBusyLeafId(null)
     }
-  }, [])
+  }, [markOpened])
 
   const handleDuplicateConfirm = useCallback(async () => {
     const file = pendingDuplicate
