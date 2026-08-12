@@ -21,6 +21,7 @@ import { useTauriChatWindow } from '../hooks/useTauriChatWindow'
 import { useLogicalViewport } from '../hooks/useZoom'
 import { isTauri } from '../utils/tauri'
 import { ServiceIcon } from './SelectionToolbar'
+import { APP_HEADER_HEIGHT } from './Layout'
 import type { AIService } from '../hooks/useAIServices'
 
 interface ChatPanelProps {
@@ -211,15 +212,15 @@ export function ChatPanel({
     : panel.dockDirection === 'horizontal'
       ? {
           left: dockLeft ?? 6,
-          top: 6,
+          top: dockTop ?? APP_HEADER_HEIGHT + 6,
           width: dockWidth ?? (typeof window !== 'undefined' ? logicalW - 12 : 0),
           bottom: 6,
         }
       : {
           right: 6,
-          top: dockTop ?? 6,
+          top: dockTop ?? APP_HEADER_HEIGHT + 6,
           width: splitWidthOverride ?? panel.splitWidth,
-          height: dockHeight ?? (typeof window !== 'undefined' ? logicalH - 12 : 0),
+          height: dockHeight ?? (typeof window !== 'undefined' ? logicalH - APP_HEADER_HEIGHT - 12 : 0),
         }
 
   return (
@@ -438,7 +439,7 @@ function ChatFloatingPill({
   return (
     <div
       className="fixed z-[9998] flex items-center gap-1.5 pl-2.5 pr-1 h-9 rounded-xl bg-surface-card border border-border/60 shadow-[0_4px_24px_rgba(0,0,0,0.08)]"
-      style={{ top: 12 + index * 44, right: right ?? 12 }}
+      style={{ top: APP_HEADER_HEIGHT + 12 + index * 44, right: right ?? 12 }}
     >
       <span
         className="text-xs font-medium text-text truncate max-w-[160px]"

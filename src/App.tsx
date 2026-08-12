@@ -8,7 +8,7 @@ import {
   PanelRightClose,
   MessageSquare,
 } from 'lucide-react'
-import { Layout } from './components/Layout'
+import { Layout, APP_HEADER_HEIGHT } from './components/Layout'
 import { FileUpload } from './components/FileUpload'
 import { FileHistory } from './components/FileHistory'
 import { AccountPanel } from './components/AccountPanel'
@@ -480,12 +480,12 @@ export default function App() {
         // docked sidebar column (splitWidth wide) itself.
         const dockAvail = Math.max(
           0,
-          (dockDirection === 'vertical' ? viewportHeight : splitWidth ?? 420) - 12 - dividerTotal,
+          (dockDirection === 'vertical' ? viewportHeight - APP_HEADER_HEIGHT : splitWidth ?? 420) - 12 - dividerTotal,
         )
         const dockRects = new Map<string, { top: number; height: number }>()
         const dockBoxes = new Map<string, { left: number; width: number }>()
         if (dockDirection === 'vertical') {
-          let acc = 6
+          let acc = APP_HEADER_HEIGHT + 6
           for (const p of splitPanels) {
             const height = Math.max(0, p.dockRatio * dockAvail)
             dockRects.set(p.id, { top: acc, height })
@@ -694,9 +694,9 @@ export default function App() {
                 className="fixed z-[9998] group flex items-center justify-center cursor-col-resize"
                 style={{
                   left: box.left + box.width,
-                  top: 6,
+                  top: APP_HEADER_HEIGHT + 6,
                   width: DOCK_DIVIDER,
-                  height: viewportHeight - 12,
+                  height: viewportHeight - APP_HEADER_HEIGHT - 12,
                 }}
                 title="拖拽调整面板大小"
               >
@@ -723,7 +723,7 @@ export default function App() {
               className="fixed z-[9998] group flex items-center justify-center cursor-col-resize"
               style={{
                 left: viewportWidth - 6 - splitWidth - 8,
-                top: 6,
+                top: APP_HEADER_HEIGHT + 6,
                 width: 8,
                 bottom: 6,
               }}
