@@ -10,12 +10,17 @@ import {
   Loader2,
   Layers,
   SquareX,
+  MoreHorizontal,
 } from 'lucide-react'
 import type { Tab, SplitDirection } from '../hooks/useEditorLayout'
 import type { FileRecord } from '../hooks/useFileHistory'
 import { getCategoryLabel } from '../utils/fileType'
 import { FileTypeIcon } from '../utils/fileIcon'
 import { formatTime } from '../utils/formatTime'
+import { HistoryPickerModal } from './HistoryPickerModal'
+
+/** Max history rows shown in the + popover; the rest open in the picker modal. */
+const MAX_VISIBLE = 8
 
 interface TabBarProps {
   /** Leaf id — used as a React key by the parent. */
@@ -71,6 +76,8 @@ export function TabBar({
   const plusBtnRef = useRef<HTMLButtonElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [plusRect, setPlusRect] = useState<{ top: number; right: number } | null>(null)
+  // Full-list searchable picker opened from the + popover's "more" button.
+  const [histModalOpen, setHistModalOpen] = useState(false)
 
   // Right-click context menu state: which tab + where the menu was opened.
   const [ctxMenu, setCtxMenu] = useState<{ tabId: string; x: number; y: number } | null>(null)
@@ -290,7 +297,8 @@ export function TabBar({
             </button>
           </div>
 
-          {/* History list */}
+          {/* History list — capped at MAX_VISIBLE; "更多" opens the searchable
+              full-list modal, picking one adds a new tab via onPickHistory. */}
           <div className="max-h-[50vh] overflow-y-auto divide-y divide-border">
             {history.length === 0 ? (
               <div className="flex items-center gap-2 px-3 py-4 text-xs text-text-secondary">
@@ -298,25 +306,37 @@ export function TabBar({
                 暂无历史文档
               </div>
             ) : (
-              history.map((record) => (
-                <button
-                  key={record.id}
-                  onClick={() => handleHistory(record)}
-                  disabled={pickerBusy}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-surface-alt/50 transition-colors text-left disabled:opacity-50"
-                >
-                  <FileTypeIcon category={record.category} className="w-3.5 h-3.5 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-text truncate">{record.name}</p>
-                    <p className="text-[10px] text-text-secondary mt-0.5">
-                      <span className="inline-block px-1 py-0.5 bg-surface-alt rounded text-[9px] mr-1">
-                        {getCategoryLabel(record.category)}
-                      </span>
-                      {formatTime(record.timestamp)}
-                    </p>
-                  </div>
-                </button>
-              ))
+              <>
+                {history.slice(0, MAX_VISIBLE).map((record) => (
+                  <button
+                    key={record.id}
+                    onClick={() => handleHistory(record)}
+                    disabled={pickerBusy}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-surface-alt/50 transition-colors text-left disabled:opacity-50"
+                  >
+                    <FileTypeIcon category={record.category} className="w-3.5 h-3.5 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-text truncate">{record.name}</p>
+                      <p className="text-[10px] text-text-secondary mt-0.5">
+                        <span className="inline-block px-1 py-0.5 bg-surface-alt rounded text-[9px] mr-1">
+                          {getCategoryLabel(record.category)}
+                        </span>
+                        {formatTime(record.timestamp)}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+                {history.length > MAX_VISIBLE && (
+                  <button
+                    onClick={() => setHistModalOpen(true)}
+                    disabled={pickerBusy}
+                    className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-primary hover:bg-primary/5 transition-colors disabled:opacity-50"
+                  >
+                    <MoreHorizontal className="w-3.5 h-3.5" />
+                    更多
+                  </button>
+                )}
+              </>
             )}
           </div>
 
@@ -378,6 +398,16 @@ export function TabBar({
             </button>
           </div>
         </div>
+      )}
+
+      {/* Searchable full-history picker (from the + popover's "more" button).
+          Picking a record downloads + opens a NEW TAB in this leaf. */}
+      {histModalOpen && (
+        <HistoryPickerModal
+          records={history}
+          onSelect={handleHistory}
+          onClose={() => setHistModalOpen(false)}
+        />
       )}
     </div>
   )
