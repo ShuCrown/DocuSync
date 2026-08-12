@@ -125,7 +125,7 @@ export function HistoryPickerModal({ records, onSelect, onRemove, onClose }: His
                         <span className="inline-block px-1 py-0.5 bg-surface-alt rounded text-[10px] mr-1.5">
                           {getCategoryLabel(r.category)}
                         </span>
-                        {formatSize(r.size)} · 上次：{formatTime(r.openedAt ?? r.timestamp)}
+                        {formatSize(r.size)} · 预览时间：{formatTime(r.openedAt ?? r.timestamp)}
                       </p>
                     </div>
                   </button>
