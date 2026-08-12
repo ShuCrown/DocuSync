@@ -1,26 +1,21 @@
-import { useState, useCallback, useEffect, useRef, useMemo, forwardRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import {
   Loader2,
-  X,
   Columns2,
   Rows2,
   ArrowLeftRight,
-  PanelLeftOpen,
   PanelRightClose,
   MessageSquare,
-  FileText,
 } from 'lucide-react'
 import { Layout } from './components/Layout'
 import { FileUpload } from './components/FileUpload'
 import { FileHistory } from './components/FileHistory'
-import { DocumentViewer } from './components/DocumentViewer'
 import { AccountPanel } from './components/AccountPanel'
 import { SettingsPanel } from './components/SettingsPanel'
 import { SelectionToolbar } from './components/SelectionToolbar'
-import { SplitPane } from './components/SplitPane'
-import { PaneHeader } from './components/PaneHeader'
-import { SimplePaneHeader } from './components/SimplePaneHeader'
+import { SplitGroup, type SplitGroupActions } from './components/SplitGroup'
+import { ZoomScroller } from './components/ZoomScroller'
 import { DuplicateConfirm } from './components/DuplicateConfirm'
 import { ShareDialog } from './components/ShareDialog'
 import { ChatPanelContainer } from './components/ChatPanelContainer'
@@ -29,9 +24,8 @@ import { UpdateBanner } from './components/UpdateBanner'
 import { useFileUpload } from './hooks/useFileUpload'
 import { useFileHistory } from './hooks/useFileHistory'
 import { useAccount } from './hooks/useAccount'
-import { useSplitView } from './hooks/useSplitView'
+import { useEditorLayout, getActiveFile } from './hooks/useEditorLayout'
 import { useAIServices, type AIService } from './hooks/useAIServices'
-import { useScrollPosition, findScrollable } from './hooks/useScrollPosition'
 import { autoCheckForUpdate } from './hooks/useUpdater'
 import { getFileCategory, isSupported } from './utils/fileType'
 import { isTauri } from './utils/tauri'
@@ -40,32 +34,6 @@ import { ZoomScaleContext } from './hooks/useZoom'
 import * as api from './lib/api'
 import type { FileRecord } from './hooks/useFileHistory'
 import type { UploadedFile } from './hooks/useFileUpload'
-
-/**
- * Per-preview scroll + zoom wrapper. The scroller (.doc-zoom-scroller) sits
- * OUTSIDE the zoom layer (.doc-zoom-layer), so the viewport and its scrollbar
- * stay full-height at any zoom while only the content scales; split panes each
- * render their own ZoomScroller so the two panes scroll INDEPENDENTLY. The
- * zoom layer has no fixed height — content sizes it, so the scroller sees the
- * full (scaled) content height and can scroll to the bottom.
- */
-const ZoomScroller = forwardRef<HTMLDivElement, { docZoom: number; children: React.ReactNode }>(
-  ({ docZoom, children }, ref) => (
-    <div ref={ref} className="doc-zoom-scroller flex-1 min-h-0 overflow-auto">
-      <div
-        className="doc-zoom-layer"
-        style={{
-          width: `calc(100% / ${docZoom})`,
-          transform: `scale(${docZoom})`,
-          transformOrigin: 'top left',
-        }}
-      >
-        {children}
-      </div>
-    </div>
-  ),
-)
-ZoomScroller.displayName = 'ZoomScroller'
 
 /**
  * Resolve the AI service hosting a chat panel by its `currentUrl`. Exact URL
@@ -136,32 +104,25 @@ function clampUiZoom(z: number): number {
   return Math.round(Math.max(UI_ZOOM_MIN, Math.min(UI_ZOOM_MAX, z)) * 10) / 10
 }
 
-/** Shorten a file name for the document restore bubbles. */
-function truncateFileName(name: string, max = 10): string {
-  return name.length > max ? `${name.slice(0, max)}…` : name
-}
-
 export default function App() {
-  const { uploadedFile, error: uploadError, uploading, downloading, downloadProgress, handleFile, restoreFromRecord, clearFile } = useFileUpload()
+  const { uploadedFile, error: uploadError, uploading, downloading, downloadProgress, handleFile, restoreFromRecord } = useFileUpload()
   const { history, addHistory, removeHistory, clearHistory } = useFileHistory()
   const account = useAccount()
   const { services } = useAIServices()
   const {
-    mode: splitMode, direction: splitDirection, activePane,
-    paneA, paneB, splitRatio, hiddenPane,
-    enterSplit, enterSplitPicker, exitSplit,
-    closePaneA, closePaneB, swapPanes,
-    setActivePane, toggleDirection, setSplitRatio, setPaneA, replacePaneB,
-    hidePane, showPane,
-  } = useSplitView()
-  const paneBRef = useRef(paneB)
+    root, activeLeafId,
+    openTab, closeTab, setActiveTab, setActiveLeaf,
+    splitLeaf, closeLeaf, swapChildren, toggleDirection, setRatio,
+    closeAll,
+  } = useEditorLayout()
   const [accountOpen, setAccountOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [shareDoc, setShareDoc] = useState<{ id: string; name: string } | null>(null)
-  const splitButtonRef = useRef<HTMLElement | null>(null)
-  const singleScrollRef = useRef<HTMLDivElement | null>(null)
-  const initialPaneAPos = useRef<{ x: number; y: number } | null>(null)
   const [pendingDuplicate, setPendingDuplicate] = useState<File | null>(null)
+  // Leaf currently running an upload/download via its TabBar + picker — drives
+  // the spinner on the + button and disables picker interactions.
+  const [busyLeafId, setBusyLeafId] = useState<string | null>(null)
+  const [pickerError, setPickerError] = useState<string | null>(null)
   const localMode = getStorageMode() === 'local'
   // Any modal overlay open (settings / account / share / duplicate confirm).
   // While one is open the docked chat panels are hidden (kept mounted) so the
@@ -259,23 +220,6 @@ export default function App() {
   const viewportWidth = viewportSize.width / uiZoom
   const viewportHeight = viewportSize.height / uiZoom
 
-  useEffect(() => {
-    paneBRef.current = paneB
-  }, [paneB])
-
-  // Capture single-viewer scroll position before entering split mode.
-  const captureSingleScroll = useCallback(() => {
-    const wrapper = singleScrollRef.current
-    if (!wrapper) return
-    const el = findScrollable(wrapper) ?? wrapper
-    const maxY = el.scrollHeight - el.clientHeight
-    const maxX = el.scrollWidth - el.clientWidth
-    initialPaneAPos.current = {
-      x: maxX > 0 ? el.scrollLeft / maxX : 0,
-      y: maxY > 0 ? el.scrollTop / maxY : 0,
-    }
-  }, [])
-
   // Check account status on mount
   useEffect(() => {
     account.checkStatus()
@@ -289,35 +233,26 @@ export default function App() {
     if (isTauri() && !import.meta.env.DEV) autoCheckForUpdate()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Get the active file based on which pane is active
-  const activeFile = activePane === 'b' && paneB ? paneB : paneA
-
-  // Stable pane callbacks using refs to avoid stale closures while keeping references stable
-  const handlePaneAClose = useCallback(() => {
-    if (paneBRef.current) {
-      setPaneA(paneBRef.current)
-    }
-    closePaneA()
-  }, [closePaneA, setPaneA])
-
-  const handlePaneBClose = useCallback(() => {
-    closePaneB()
-  }, [closePaneB])
-
-  const handleReplacePaneB = useCallback(() => {
-    enterSplitPicker()
-  }, [enterSplitPicker])
-
-  const handlePaneFocus = useCallback((pane: 'a' | 'b') => {
-    setActivePane(pane)
-  }, [setActivePane])
-
-  // Sync uploadedFile to paneA
+  // Bridge useFileUpload's `uploadedFile` (set by home-page upload or history
+  // restore) into the editor tree. The ref guard prevents double-opening when
+  // `openTab`'s identity changes (it depends on activeLeafId).
+  const lastOpenedRef = useRef<UploadedFile | null>(null)
   useEffect(() => {
-    if (uploadedFile && !paneA) {
-      setPaneA(uploadedFile)
+    if (uploadedFile && uploadedFile !== lastOpenedRef.current) {
+      lastOpenedRef.current = uploadedFile
+      openTab(uploadedFile)
     }
-  }, [uploadedFile]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [uploadedFile, openTab])
+
+  // Ref mirror of openTab so the TabBar picker callbacks stay stable (don't
+  // re-create when activeLeafId changes). Without this, every leaf-focus
+  // change would re-render the whole SplitGroup tree via prop identity change.
+  const openTabRef = useRef(openTab)
+  useEffect(() => { openTabRef.current = openTab }, [openTab])
+
+  // The file currently shown in the active leaf — drives SelectionToolbar and
+  // the Layout header's file name.
+  const activeFile = getActiveFile(root, activeLeafId)
 
   // Check if a file with the same name already exists in history
   const isDuplicate = useCallback((fileName: string) => {
@@ -338,13 +273,10 @@ export default function App() {
     await proceedUpload(file)
   }, [isDuplicate, proceedUpload])
 
+  // Close all tabs / leave split tree — back to the home page.
   const handleClear = useCallback(() => {
-    if (splitMode === 'split') {
-      exitSplit()
-    }
-    clearFile()
-    setPaneA(null)
-  }, [clearFile, splitMode, exitSplit, setPaneA])
+    closeAll()
+  }, [closeAll])
 
   const handleHistorySelect = useCallback(async (record: FileRecord) => {
     await restoreFromRecord(record)
@@ -374,179 +306,89 @@ export default function App() {
     setShareDoc(null)
   }, [])
 
-
-  // Split view handlers
-  const handleSplitToggle = useCallback(() => {
-    if (splitMode === 'split') {
-      exitSplit()
-    } else {
-      captureSingleScroll()
-      if (!paneA && uploadedFile) {
-        setPaneA(uploadedFile)
-      }
-      enterSplitPicker()
-    }
-  }, [splitMode, exitSplit, enterSplitPicker, captureSingleScroll, paneA, uploadedFile, setPaneA])
-
-  const handlePickerUpload = useCallback(async (file: File) => {
-    if (!isSupported(file)) return
-
-    const category = getFileCategory(file)
-    const url = URL.createObjectURL(file)
-    try {
-      const result = await api.uploadDocument(file)
-      const uploadedB: UploadedFile = { file, category, url, docId: result.id }
-      captureSingleScroll()
-      if (!paneA && uploadedFile) {
-        setPaneA(uploadedFile)
-      }
-      enterSplit(uploadedB)
-      addHistory(file, 'unknown')
-    } catch (err) {
-      console.error('分屏上传失败:', err)
-      URL.revokeObjectURL(url)
-    }
-  }, [paneA, uploadedFile, setPaneA, enterSplit, addHistory, captureSingleScroll])
-
-  const isSplit = splitMode === 'split' && paneA
-  const singleFile = paneA ?? uploadedFile
-
-  // Per-viewer scroll position tracking — each pane owns its own scroller so
-  // split views scroll INDEPENDENTLY (no synchronized scrolling). Key by
-  // document identity so position follows the document on swap.
-  const paneAScrollRef = useScrollPosition(
-    paneA ? (paneA.docId ?? paneA.file.name) : null,
-    initialPaneAPos.current, // eslint-disable-line react-hooks/refs -- stable ref, read once per mount
-  )
-  const paneBScrollRef = useScrollPosition(
-    paneB ? (paneB.docId ?? paneB.file.name) : null,
-  )
-  const singleScrollPositionRef = useScrollPosition(
-    singleFile ? (singleFile.docId ?? singleFile.file.name) : null,
-  )
-  const handleSingleScrollRef = useCallback((el: HTMLDivElement | null) => {
-    singleScrollRef.current = el
-    singleScrollPositionRef(el)
-  }, [singleScrollPositionRef])
-
-  // Memoize pane elements to prevent unmount/remount on layout direction change.
-  // Only depend on pane data and stable callbacks, NOT on direction/splitRatio.
-  const paneAElement = useMemo(() => (
-    <div className="h-full flex flex-col">
-      <PaneHeader
-        file={paneA!}
-        pane="a"
-        isActive={activePane === 'a'}
-        onClose={handlePaneAClose}
-        onFocus={handlePaneFocus}
-        onHide={() => hidePane('a')}
-        onShare={!localMode && paneA?.docId ? () => handleShareOpen(paneA.docId!, paneA.file.name) : undefined}
-      />
-      <ZoomScroller ref={paneAScrollRef} docZoom={docZoom}>
-        <DocumentViewer
-          uploaded={paneA!}
-          onTextExtracted={() => {}}
-        />
-      </ZoomScroller>
-    </div>
-  ), [paneA, activePane, handlePaneAClose, handlePaneFocus, handleShareOpen, localMode, hidePane, paneAScrollRef, docZoom])
-
-  const paneBElement = useMemo(() => (
-    <div className="h-full flex flex-col">
-      <PaneHeader
-        file={paneB!}
-        pane="b"
-        isActive={activePane === 'b'}
-        onClose={handlePaneBClose}
-        onReplace={handleReplacePaneB}
-        onFocus={handlePaneFocus}
-        onHide={() => hidePane('b')}
-        onShare={!localMode && paneB?.docId ? () => handleShareOpen(paneB.docId!, paneB.file.name) : undefined}
-      />
-      <ZoomScroller ref={paneBScrollRef} docZoom={docZoom}>
-        <DocumentViewer
-          uploaded={paneB!}
-          onTextExtracted={() => {}}
-        />
-      </ZoomScroller>
-    </div>
-  ), [paneB, activePane, handlePaneBClose, handleReplacePaneB, handlePaneFocus, handleShareOpen, localMode, hidePane, paneBScrollRef, docZoom])
-
-  // Picker view for pane B when no file is selected (same layout as home page)
-  const handlePickerFile = useCallback(async (file: File) => {
-    if (!isSupported(file)) return
-    if (isDuplicate(file.name)) {
-      setPendingDuplicate(file)
+  // TabBar + picker: upload a brand-new file into a specific leaf. Uses
+  // openTabRef so the callback identity is stable across activeLeafId changes
+  // (otherwise the whole SplitGroup tree would re-render on every leaf focus).
+  const handlePickFileInLeaf = useCallback(async (leafId: string, file: File) => {
+    if (!isSupported(file)) {
+      setPickerError('不支持的文件格式')
       return
     }
-    await handlePickerUpload(file)
-  }, [isDuplicate, handlePickerUpload])
+    if (file.size > 50 * 1024 * 1024) {
+      setPickerError('文件大小不能超过 50MB')
+      return
+    }
+    setBusyLeafId(leafId)
+    setPickerError(null)
+    const url = URL.createObjectURL(file)
+    try {
+      const category = getFileCategory(file)
+      const result = await api.uploadDocument(file)
+      openTabRef.current({ file, category, url, docId: result.id }, leafId)
+      addHistory(file, 'unknown')
+    } catch (err) {
+      console.error('TabBar 上传失败:', err)
+      URL.revokeObjectURL(url)
+      setPickerError(err instanceof Error ? err.message : '上传失败')
+    } finally {
+      setBusyLeafId(null)
+    }
+  }, [addHistory])
+
+  // TabBar + picker: reopen a history record into a specific leaf.
+  const handlePickHistoryInLeaf = useCallback(async (leafId: string, record: FileRecord) => {
+    setBusyLeafId(leafId)
+    setPickerError(null)
+    try {
+      const blob = await api.downloadDocument(record.id)
+      if (blob.size === 0) {
+        setPickerError('文件下载失败，内容为空')
+        return
+      }
+      const file = new File([blob], record.name, { type: blob.type })
+      const url = URL.createObjectURL(file)
+      openTabRef.current({ file, category: record.category, url, docId: record.id }, leafId)
+    } catch (err) {
+      console.error('TabBar 历史下载失败:', err)
+      setPickerError(err instanceof Error ? err.message : '加载历史文件失败')
+    } finally {
+      setBusyLeafId(null)
+    }
+  }, [])
 
   const handleDuplicateConfirm = useCallback(async () => {
     const file = pendingDuplicate
     setPendingDuplicate(null)
     if (!file) return
-    if (isSplit) {
-      await handlePickerUpload(file)
-    } else {
-      await proceedUpload(file)
-    }
-  }, [pendingDuplicate, isSplit, handlePickerUpload, proceedUpload])
+    await proceedUpload(file)
+  }, [pendingDuplicate, proceedUpload])
 
   const handleDuplicateCancel = useCallback(() => {
     setPendingDuplicate(null)
   }, [])
 
-  const handlePickerHistorySelect = useCallback(async (record: FileRecord) => {
-    try {
-      const blob = await api.downloadDocument(record.id)
-      if (blob.size === 0) return
-      const file = new File([blob], record.name, { type: blob.type })
-      const url = URL.createObjectURL(file)
-      replacePaneB({ file, category: record.category, url, docId: record.id })
-      addHistory(file, 'unknown')
-    } catch {
-      // silently fail, user can retry
-    }
-  }, [replacePaneB, addHistory])
+  // Stable actions bundle for the recursive SplitGroup — identity is stable
+  // across renders (all entries are useCallback'd in the hook), so memoized
+  // subtrees skip re-render during divider drags.
+  const splitGroupActions: SplitGroupActions = useMemo(() => ({
+    setActiveTab,
+    closeTab,
+    setActiveLeaf,
+    splitLeaf,
+    closeLeaf,
+    swapChildren,
+    toggleDirection,
+    setRatio,
+  }), [setActiveTab, closeTab, setActiveLeaf, splitLeaf, closeLeaf, swapChildren, toggleDirection, setRatio])
 
-  const paneBPickerElement = useMemo(() => (
-    <div className="h-full flex flex-col">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border/40 bg-surface-alt/40 shrink-0">
-        <span className="text-xs font-medium text-text-secondary">选择对比文档</span>
-        <button
-          onClick={handlePaneBClose}
-          className="p-1 rounded-md text-text-secondary hover:text-text hover:bg-surface-alt transition-colors"
-          title="关闭分屏"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
-      </div>
-      <div className="flex-1 overflow-auto flex items-start justify-center px-4 sm:px-6 py-8">
-        <div className="w-full max-w-2xl">
-          <FileUpload
-            onFile={handlePickerFile}
-            currentFile={null}
-            uploading={false}
-            error={null}
-          />
-          <FileHistory
-            history={history}
-            onSelect={handlePickerHistorySelect}
-            onRemove={removeHistory}
-            onClear={clearHistory}
-          />
-        </div>
-      </div>
-    </div>
-  ), [handlePickerFile, history, handlePickerHistorySelect, removeHistory, clearHistory, handlePaneBClose])
+  const handleShareForLeaf = useCallback((docId: string, fileName: string) => {
+    handleShareOpen(docId, fileName)
+  }, [handleShareOpen])
 
-  // Main content (home / split-comparison / single document) — wrapped in a
-  // split row when the chat panel is docked so the document pane shrinks to
-  // make room for it.
+  // Main content: home page (no tabs) or the split tree.
   const mainContent = (
     <>
-      {!paneA && !uploadedFile ? (
+      {root === null ? (
         <ZoomScroller docZoom={docZoom}>
           <div className="flex-1 flex items-start justify-center px-4 sm:px-6 py-8">
             <div className="w-full max-w-2xl">
@@ -565,34 +407,23 @@ export default function App() {
             </div>
           </div>
         </ZoomScroller>
-      ) : isSplit ? (
-        // SplitPane stays mounted across hide/restore — the hidden pane is
-        // display:none (CSS only), so neither DocumentViewer remounts and both
-        // keep their scroll position / viewer state.
-        <SplitPane
-          direction={splitDirection}
-          splitRatio={splitRatio}
-          onSplitRatioChange={setSplitRatio}
-          onSwap={swapPanes}
-          onDirectionChange={toggleDirection}
-          hiddenPane={hiddenPane}
-          paneA={paneAElement}
-          paneB={paneB ? paneBElement : paneBPickerElement}
-        />
       ) : (
-        <div className="flex-1 flex flex-col min-h-0">
-          <SimplePaneHeader
-            fileName={singleFile!.file.name}
-            docId={singleFile?.docId}
-            onClose={handleClear}
-            onShare={!localMode && singleFile?.docId ? () => handleShareOpen(singleFile.docId!, singleFile.file.name) : undefined}
-          />
-          <ZoomScroller ref={handleSingleScrollRef} docZoom={docZoom}>
-            <DocumentViewer
-              uploaded={singleFile!}
-              onTextExtracted={() => {}}
-            />
-          </ZoomScroller>
+        <SplitGroup
+          node={root}
+          activeLeafId={activeLeafId}
+          docZoom={docZoom}
+          shareDisabled={localMode}
+          history={history}
+          busyLeafId={busyLeafId}
+          actions={splitGroupActions}
+          onShare={handleShareForLeaf}
+          onPickFileInLeaf={handlePickFileInLeaf}
+          onPickHistoryInLeaf={handlePickHistoryInLeaf}
+        />
+      )}
+      {pickerError && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[9999] px-3 py-2 rounded-lg bg-error/10 border border-error/30 text-error text-xs shadow-[0_4px_16px_rgba(0,0,0,0.1)]">
+          {pickerError}
         </div>
       )}
     </>
@@ -732,7 +563,7 @@ export default function App() {
 
         return (
         <Layout
-          currentFileName={paneA?.file.name ?? uploadedFile?.file.name ?? null}
+          currentFileName={activeFile?.file.name ?? null}
           onBack={handleClear}
           history={history}
           onHistorySelect={handleHistorySelect}
@@ -741,24 +572,18 @@ export default function App() {
           email={account.email}
           onAccountOpen={localMode ? undefined : handleAccountOpen}
           onSettingsOpen={handleSettingsOpen}
-          splitMode={splitMode}
-          onSplitToggle={handleSplitToggle}
-          splitButtonRef={splitButtonRef}
           chatSplitWidth={splitWidth != null && !chatCollapsed ? splitWidth + 14 : undefined}
           docZoom={docZoom}
           onDocZoomIn={() => setDocZoom((z) => clampDocZoom(z + DOC_ZOOM_STEP))}
           onDocZoomOut={() => setDocZoom((z) => clampDocZoom(z - DOC_ZOOM_STEP))}
           onDocZoomReset={() => setDocZoom(1)}
         >
-          {/* Document area — each preview (home / single doc / split pane) is
-              its own ZoomScroller: the scroller (.doc-zoom-scroller) sits
-              OUTSIDE that pane's zoom layer (.doc-zoom-layer), so the viewport
-              and scrollbar always stay full-height while only the content
-              scales; and split panes each own a scroller, so the two panes
-              scroll INDEPENDENTLY. Inner viewers (office-doc / markdown-body /
-              pdf) have their own scrolling disabled via CSS under
-              .doc-zoom-layer, so each pane's scroller owns the gesture
-              (WKWebView-safe). */}
+          {/* Document area — each preview (home / split tree) is its own
+              ZoomScroller-equivalent: TabContent wraps each tab's viewer in a
+              ZoomScroller whose scroller sits OUTSIDE the zoom layer, so the
+              viewport and scrollbar always stay full-height while only the
+              content scales; and each leaf owns its own scroller, so panes
+              scroll INDEPENDENTLY. */}
           <div className="flex-1 flex flex-col min-h-0">
             {mainContent}
           </div>
@@ -941,26 +766,6 @@ export default function App() {
             </button>
           )}
 
-          {/* Hidden split-view pane — a unified restore bubble in the
-              bottom-left corner (same style as the AI chat restore bubbles):
-              document icon + name + expand icon, one click brings the pane
-              back. The bottom-left corner is never covered by a docked chat
-              webview, so the bubble is always reachable. */}
-          {(hiddenPane === 'a' || hiddenPane === 'b') && (
-            <button
-              onClick={() => showPane(hiddenPane)}
-              className="fixed z-[9999] h-10 max-w-[220px] rounded-xl bg-surface-card text-primary border border-border/60 shadow-[0_4px_24px_rgba(0,0,0,0.08)] flex items-center gap-1.5 pl-2 pr-2 hover:bg-surface-alt/50 hover:scale-105 transition-all"
-              style={{ left: 16, bottom: 16 }}
-              title={`展开 ${hiddenPane === 'a' ? (paneA?.file.name ?? '文档 A') : (paneB?.file.name ?? '文档 B')}`}
-            >
-              <FileText className="w-4 h-4 shrink-0" />
-              <span className="text-xs font-medium text-text truncate">
-                {truncateFileName(hiddenPane === 'a' ? (paneA?.file.name ?? '文档 A') : (paneB?.file.name ?? '文档 B'))}
-              </span>
-              <PanelLeftOpen className="w-4 h-4 shrink-0" />
-            </button>
-          )}
-
           {/* Collapsed — restore bubbles (stacked, shifted clear of a docked
               split panel's native webview). Each bubble shows the AI service's
               icon so multiple collapsed chats are distinguishable. */}
@@ -1030,7 +835,7 @@ export default function App() {
             />
           )}
 
-          {/* Selection toolbar for AI Q&A */}
+          {/* Selection toolbar for AI Q&A — bound to the active leaf's active tab. */}
           {activeFile && <SelectionToolbar onOpenChat={handleOpenChat} />}
 
           {/* Duplicate file confirmation */}

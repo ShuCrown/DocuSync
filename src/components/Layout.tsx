@@ -3,7 +3,6 @@ import {
   Clock,
   X,
   User,
-  Columns2,
   Settings,
   ZoomIn,
   ZoomOut,
@@ -23,10 +22,6 @@ interface LayoutProps {
   email?: string | null
   onAccountOpen?: () => void
   onSettingsOpen?: () => void
-  // Split view props
-  splitMode?: 'single' | 'split'
-  onSplitToggle?: () => void
-  splitButtonRef?: React.RefObject<HTMLElement | null>
   // Chat panel split width — shrinks the main panel to make room
   chatSplitWidth?: number
   // Browser-like zoom of the DOCUMENT area only (chat panels zoom via their
@@ -48,16 +43,12 @@ export function Layout({
   email,
   onAccountOpen,
   onSettingsOpen,
-  splitMode,
-  onSplitToggle,
-  splitButtonRef,
   chatSplitWidth,
   docZoom = 1,
   onDocZoomIn,
   onDocZoomOut,
   onDocZoomReset,
 }: LayoutProps) {
-  const isSplit = splitMode === 'split'
   const [historyOpen, setHistoryOpen] = useState(false)
   const [zoomOpen, setZoomOpen] = useState(false)
   const historyRef = useRef<HTMLDivElement>(null)
@@ -89,7 +80,6 @@ export function Layout({
 
   return (
     <div
-      data-split={isSplit || undefined}
       className="h-full bg-surface flex flex-col overflow-hidden p-1.5"
       style={chatSplitWidth ? { paddingRight: chatSplitWidth } : undefined}
     >
@@ -169,18 +159,6 @@ export function Layout({
                     </div>
                   )}
                 </div>
-              )}
-
-              {/* Split button (only when file is open, hidden in split mode) */}
-              {currentFileName && !isSplit && onSplitToggle && (
-                <button
-                  ref={splitButtonRef as React.RefObject<HTMLButtonElement>}
-                  onClick={onSplitToggle}
-                  className="p-2 rounded-md text-text-secondary hover:text-text hover:bg-surface-alt/60 transition-colors"
-                  title="分屏对比"
-                >
-                  <Columns2 className="w-4.5 h-4.5" />
-                </button>
               )}
 
               {/* History dropdown */}

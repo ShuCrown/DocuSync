@@ -1,0 +1,281 @@
+import { useState, useRef, useEffect } from 'react'
+import {
+  FileText,
+  X,
+  Plus,
+  Columns2,
+  Rows2,
+  Share2,
+  Upload,
+  Clock,
+  Loader2,
+} from 'lucide-react'
+import type { Tab, SplitDirection } from '../hooks/useEditorLayout'
+import type { FileRecord } from '../hooks/useFileHistory'
+import { getCategoryLabel } from '../utils/fileType'
+import { formatTime } from '../utils/formatTime'
+
+interface TabBarProps {
+  /** Leaf id — used as a React key by the parent. */
+  leafId: string
+  tabs: Tab[]
+  activeTabId: string | null
+  isActiveLeaf: boolean
+  /** Disable share button (e.g. local storage mode). */
+  shareDisabled?: boolean
+  history: FileRecord[]
+  /** Whether a history download or upload is in flight (shows spinner). */
+  pickerBusy?: boolean
+  onSetActiveTab: (tabId: string) => void
+  onCloseTab: (tabId: string) => void
+  onSplitLeaf: (direction: SplitDirection) => void
+  onCloseLeaf: () => void
+  onShare: (docId: string, fileName: string) => void
+  /** Upload a brand-new file → caller turns it into a tab via openTab. */
+  onPickFile: (file: File) => void
+  /** Reopen a history record → caller downloads + turns it into a tab. */
+  onPickHistory: (record: FileRecord) => void
+}
+
+/**
+ * VSCode-style tab strip for a single leaf group:
+ * - horizontal list of open tabs (file icon + name + close X)
+ * - right-side actions: split-right, split-down, open-document (+), close-group
+ *
+ * The "+" action opens a small popover with an upload button and the history
+ * list — picking either calls back to the parent, which adds a new tab to this
+ * leaf via `openTab`.
+ */
+export function TabBar({
+  tabs,
+  activeTabId,
+  isActiveLeaf,
+  shareDisabled,
+  history,
+  pickerBusy,
+  onSetActiveTab,
+  onCloseTab,
+  onSplitLeaf,
+  onCloseLeaf,
+  onShare,
+  onPickFile,
+  onPickHistory,
+}: TabBarProps) {
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const pickerRef = useRef<HTMLDivElement>(null)
+  const plusBtnRef = useRef<HTMLButtonElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [plusRect, setPlusRect] = useState<{ top: number; right: number } | null>(null)
+
+  // Close picker on outside click / ESC.
+  useEffect(() => {
+    if (!pickerOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (
+        pickerRef.current && !pickerRef.current.contains(e.target as Node) &&
+        plusBtnRef.current && !plusBtnRef.current.contains(e.target as Node)
+      ) {
+        setPickerOpen(false)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPickerOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [pickerOpen])
+
+  const openPicker = () => {
+    const rect = plusBtnRef.current?.getBoundingClientRect()
+    if (rect) {
+      setPlusRect({ top: rect.bottom + 6, right: window.innerWidth - rect.right })
+    }
+    setPickerOpen(true)
+  }
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      onPickFile(file)
+      setPickerOpen(false)
+    }
+    e.target.value = ''
+  }
+
+  const handleHistory = (record: FileRecord) => {
+    onPickHistory(record)
+    setPickerOpen(false)
+  }
+
+  const activeTab = tabs.find((t) => t.id === activeTabId) ?? null
+  const canShare = !shareDisabled && activeTab?.file.docId != null
+
+  return (
+    <div
+      className={`flex items-stretch border-b transition-colors shrink-0 ${
+        isActiveLeaf
+          ? 'bg-surface-card border-border'
+          : 'bg-surface-alt/50 border-border/40'
+      }`}
+    >
+      {/* Tab strip (scrollable horizontally) */}
+      <div className="flex items-stretch flex-1 min-w-0 overflow-x-auto">
+        {tabs.length === 0 ? (
+          <div className="flex items-center px-3 py-1.5 text-xs text-text-secondary italic">
+            选择文档
+          </div>
+        ) : (
+          tabs.map((tab) => {
+            const isActive = tab.id === activeTabId
+            return (
+              <div
+                key={tab.id}
+                onClick={() => onSetActiveTab(tab.id)}
+                title={tab.file.file.name}
+                className={`group flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 border-r border-border/40 cursor-pointer max-w-[220px] min-w-[120px] transition-colors ${
+                  isActive
+                    ? 'bg-surface-card text-text'
+                    : 'bg-surface-alt/40 text-text-secondary hover:bg-surface-alt/80'
+                }`}
+              >
+                <FileText className="w-3 h-3 shrink-0 text-primary" />
+                <span className="text-xs font-medium truncate flex-1">{tab.file.file.name}</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onCloseTab(tab.id)
+                  }}
+                  className="p-0.5 rounded text-text-secondary/60 hover:text-error hover:bg-error/10 transition-colors shrink-0"
+                  title="关闭标签"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            )
+          })
+        )}
+      </div>
+
+      {/* Right-side actions */}
+      <div className="flex items-center gap-0.5 px-1.5 shrink-0">
+        {/* Share the active tab's document */}
+        {canShare && (
+          <button
+            onClick={() => onShare(activeTab!.file.docId!, activeTab!.file.file.name)}
+            className="p-1 rounded text-text-secondary/70 hover:text-primary hover:bg-surface-alt transition-colors"
+            title="分享当前文档"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+          </button>
+        )}
+        {/* Split right (horizontal: side by side) */}
+        <button
+          onClick={() => onSplitLeaf('horizontal')}
+          className="p-1 rounded text-text-secondary/70 hover:text-primary hover:bg-surface-alt transition-colors"
+          title="向右分栏"
+        >
+          <Columns2 className="w-3.5 h-3.5" />
+        </button>
+        {/* Split down (vertical: stacked) */}
+        <button
+          onClick={() => onSplitLeaf('vertical')}
+          className="p-1 rounded text-text-secondary/70 hover:text-primary hover:bg-surface-alt transition-colors"
+          title="向下分栏"
+        >
+          <Rows2 className="w-3.5 h-3.5" />
+        </button>
+        {/* Open document — history + upload popover */}
+        <button
+          ref={plusBtnRef}
+          onClick={openPicker}
+          className="p-1 rounded text-text-secondary/70 hover:text-primary hover:bg-surface-alt transition-colors"
+          title="打开文档"
+        >
+          {pickerBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+        </button>
+        {/* Close the whole leaf group */}
+        <button
+          onClick={onCloseLeaf}
+          className="p-1 rounded text-text-secondary/70 hover:text-error hover:bg-error/10 transition-colors"
+          title="关闭此分栏组"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Hidden file input shared by the popover */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="hidden"
+        accept=".pdf,.md,.markdown,.docx,.doc,.xlsx,.xls,.pptx,.ppt"
+        onChange={handleFileChange}
+      />
+
+      {/* Popover anchored to the + button */}
+      {pickerOpen && plusRect && (
+        <div
+          ref={pickerRef}
+          className="fixed z-50 w-72 bg-surface-card border border-border rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.12)] overflow-hidden flex flex-col"
+          style={{ top: plusRect.top, right: plusRect.right }}
+        >
+          <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-surface-alt/40">
+            <span className="text-xs font-medium text-text-secondary">打开文档</span>
+            <button
+              onClick={() => setPickerOpen(false)}
+              className="p-0.5 rounded text-text-secondary/60 hover:text-text transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* History list */}
+          <div className="max-h-[50vh] overflow-y-auto divide-y divide-border">
+            {history.length === 0 ? (
+              <div className="flex items-center gap-2 px-3 py-4 text-xs text-text-secondary">
+                <Clock className="w-3.5 h-3.5" />
+                暂无历史文档
+              </div>
+            ) : (
+              history.map((record) => (
+                <button
+                  key={record.id}
+                  onClick={() => handleHistory(record)}
+                  disabled={pickerBusy}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-surface-alt/50 transition-colors text-left disabled:opacity-50"
+                >
+                  <FileText className="w-3.5 h-3.5 text-text-secondary shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-text truncate">{record.name}</p>
+                    <p className="text-[10px] text-text-secondary mt-0.5">
+                      <span className="inline-block px-1 py-0.5 bg-surface-alt rounded text-[9px] mr-1">
+                        {getCategoryLabel(record.category)}
+                      </span>
+                      {formatTime(record.timestamp)}
+                    </p>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+
+          {/* Upload button */}
+          <div className="border-t border-border">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={pickerBusy}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-primary hover:bg-primary/5 transition-colors disabled:opacity-50"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              上传新文件
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
