@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Clock, X, MoreHorizontal } from 'lucide-react'
+import { Clock, X, MoreHorizontal, Search } from 'lucide-react'
 import { getCategoryLabel } from '../utils/fileType'
 import { FileTypeIcon } from '../utils/fileIcon'
 import { formatTime, formatSize } from '../utils/formatTime'
@@ -9,20 +9,30 @@ import type { FileRecord } from '../hooks/useFileHistory'
 interface FileHistoryProps {
   history: FileRecord[]
   onSelect: (record: FileRecord) => void
+  /** Hide a record from 最近查看 (file stays on the server). */
   onRemove: (id: string) => void
   onClear: () => void
+  /** Permanent delete used by the all-files picker (double-confirmed). */
+  onDelete?: (id: string) => Promise<void> | void
+  /** Every uploaded document (including ones removed from this list). The
+      search / "更多" picker lists these, so hidden records stay reopenable
+      without a separate "我的文件" entry. */
+  allDocuments?: FileRecord[]
 }
 
 /** Max rows shown inline; the rest are reachable via the "more" picker. */
 const MAX_VISIBLE = 8
 
-export function FileHistory({ history, onSelect, onRemove, onClear }: FileHistoryProps) {
+export function FileHistory({ history, onSelect, onRemove, onClear, onDelete, allDocuments }: FileHistoryProps) {
   const [pickerOpen, setPickerOpen] = useState(false)
 
   if (history.length === 0) return null
 
   const visible = history.slice(0, MAX_VISIBLE)
   const hasMore = history.length > MAX_VISIBLE
+  // The picker shows the FULL list (including hidden records) so a removed
+  // record can always be reopened — one entry point, no separate "我的文件".
+  const pickerRecords = allDocuments && allDocuments.length > 0 ? allDocuments : history
 
   return (
     <div className="mt-8">
@@ -31,12 +41,22 @@ export function FileHistory({ history, onSelect, onRemove, onClear }: FileHistor
           <Clock className="w-4 h-4" />
           <span className="text-sm font-medium">最近查看</span>
         </div>
-        <button
-          onClick={onClear}
-          className="text-xs text-text-secondary hover:text-error transition-colors"
-        >
-          清空记录
-        </button>
+        <div className="flex items-center gap-3">
+          {/* Search the full history — always available, regardless of count. */}
+          <button
+            onClick={() => setPickerOpen(true)}
+            title="查找历史记录"
+            className="p-1 rounded-md text-text-secondary hover:text-text hover:bg-surface-alt/60 transition-colors"
+          >
+            <Search className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={onClear}
+            className="text-xs text-text-secondary hover:text-error transition-colors"
+          >
+            清空记录
+          </button>
+        </div>
       </div>
 
       <div className="border border-border rounded-lg bg-surface-card shadow-[0_1px_3px_rgba(0,0,0,0.04)] divide-y divide-border">
@@ -64,6 +84,7 @@ export function FileHistory({ history, onSelect, onRemove, onClear }: FileHistor
                 onRemove(record.id)
               }}
               className="p-1 rounded-md text-text-secondary/50 hover:text-error hover:bg-error/5 opacity-0 group-hover:opacity-100 transition-all"
+              title="从最近查看移除（文件保留，可在“我的文件”找回）"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -86,9 +107,9 @@ export function FileHistory({ history, onSelect, onRemove, onClear }: FileHistor
 
       {pickerOpen && (
         <HistoryPickerModal
-          records={history}
+          records={pickerRecords}
           onSelect={onSelect}
-          onRemove={onRemove}
+          onRemove={onDelete}
           onClose={() => setPickerOpen(false)}
         />
       )}

@@ -37,6 +37,11 @@ interface SplitGroupProps {
   docZoom: number
   shareDisabled: boolean
   history: FileRecord[]
+  /** Every uploaded document (incl. records hidden from 最近查看) — feeds the
+      + picker / history modal so removed files stay reopenable. */
+  allDocuments?: FileRecord[]
+  /** Permanent delete from the all-files picker (double-confirmed). */
+  onDeleteDocument?: (id: string) => Promise<void> | void
   /** Leaf currently running an upload/download via its + picker (shows spinner). */
   busyLeafId: string | null
   actions: SplitGroupActions
@@ -91,6 +96,8 @@ const LeafView = memo(function LeafView({
   docZoom,
   shareDisabled,
   history,
+  allDocuments,
+  onDeleteDocument,
   busy,
   actions,
   onShare,
@@ -102,6 +109,8 @@ const LeafView = memo(function LeafView({
   docZoom: number
   shareDisabled: boolean
   history: FileRecord[]
+  allDocuments?: FileRecord[]
+  onDeleteDocument?: (id: string) => Promise<void> | void
   busy: boolean
   actions: SplitGroupActions
   onShare: (docId: string, fileName: string) => void
@@ -130,6 +139,8 @@ const LeafView = memo(function LeafView({
         isActiveLeaf={isActiveLeaf}
         shareDisabled={shareDisabled}
         history={history}
+        allDocuments={allDocuments}
+        onDeleteDocument={onDeleteDocument}
         pickerBusy={busy}
         onSetActiveTab={actions.setActiveTab}
         onCloseTab={actions.closeTab}
@@ -148,9 +159,11 @@ const LeafView = memo(function LeafView({
               <FileUpload onFile={handlePickFile} currentFile={null} uploading={busy} error={null} compact />
               <FileHistory
                 history={history}
+                allDocuments={allDocuments}
                 onSelect={handlePickHistory}
                 onRemove={() => {}}
                 onClear={() => {}}
+                onDelete={onDeleteDocument}
               />
             </div>
           </div>
@@ -175,6 +188,8 @@ const LeafView = memo(function LeafView({
   prev.docZoom === next.docZoom &&
   prev.shareDisabled === next.shareDisabled &&
   prev.history === next.history &&
+  prev.allDocuments === next.allDocuments &&
+  prev.onDeleteDocument === next.onDeleteDocument &&
   prev.busy === next.busy &&
   prev.actions === next.actions &&
   prev.onShare === next.onShare &&
@@ -302,6 +317,8 @@ export const SplitGroup = memo(function SplitGroup(props: SplitGroupProps) {
         docZoom={props.docZoom}
         shareDisabled={props.shareDisabled}
         history={props.history}
+        allDocuments={props.allDocuments}
+        onDeleteDocument={props.onDeleteDocument}
         busy={props.busyLeafId === node.id}
         actions={actions}
         onShare={props.onShare}
@@ -342,6 +359,8 @@ export const SplitGroup = memo(function SplitGroup(props: SplitGroupProps) {
   prev.docZoom === next.docZoom &&
   prev.shareDisabled === next.shareDisabled &&
   prev.history === next.history &&
+  prev.allDocuments === next.allDocuments &&
+  prev.onDeleteDocument === next.onDeleteDocument &&
   prev.busyLeafId === next.busyLeafId &&
   prev.actions === next.actions &&
   prev.onShare === next.onShare &&

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import * as api from '../lib/api'
 import type { FileCategory } from '../utils/fileType'
 
@@ -10,23 +10,55 @@ export interface FileRecord {
   timestamp: number
 }
 
+// ---------------------------------------------------------------------------
+// Locally "hidden" doc ids. Removing a record from 最近查看 only hides it
+// here — the uploaded file stays on the server (R2 / local disk) and can be
+// reopened any time from the "我的文件" picker. Server-side deletion is NOT
+// called, so the file is never lost by tidying up the list.
+// ---------------------------------------------------------------------------
+
+const HIDDEN_KEY = 'docusync.hidden-doc-ids'
+
+function loadHiddenIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(HIDDEN_KEY)
+    return new Set(raw ? (JSON.parse(raw) as string[]) : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function saveHiddenIds(ids: Set<string>) {
+  try {
+    localStorage.setItem(HIDDEN_KEY, JSON.stringify([...ids]))
+  } catch {
+    // Ignore storage failures (private mode etc.) — hiding still works for
+    // the current session.
+  }
+}
+
 export function useFileHistory() {
+  /** Visible records (all uploaded docs minus locally hidden ones). */
   const [history, setHistory] = useState<FileRecord[]>([])
+  /** Every uploaded document on this device, including hidden ones — the
+      source for the "我的文件" picker that reopens lost records. */
+  const [allDocuments, setAllDocuments] = useState<FileRecord[]>([])
   const [loading, setLoading] = useState(true)
+  const hiddenIdsRef = useRef<Set<string>>(loadHiddenIds())
 
   const fetchHistory = useCallback(async () => {
     try {
       setLoading(true)
       const docs = await api.listDocuments()
-      setHistory(
-        docs.map((d) => ({
-          id: d.id,
-          name: d.name,
-          size: d.size,
-          category: d.category as FileCategory,
-          timestamp: d.created_at * 1000, // server returns unix seconds
-        }))
-      )
+      const records: FileRecord[] = docs.map((d) => ({
+        id: d.id,
+        name: d.name,
+        size: d.size,
+        category: d.category as FileCategory,
+        timestamp: d.created_at * 1000, // server returns unix seconds
+      }))
+      setAllDocuments(records)
+      setHistory(records.filter((r) => !hiddenIdsRef.current.has(r.id)))
     } catch (err) {
       console.error('Failed to fetch history:', err)
     } finally {
@@ -43,23 +75,43 @@ export function useFileHistory() {
     fetchHistory()
   }, [fetchHistory])
 
-  const removeHistory = useCallback(async (id: string) => {
-    try {
-      await api.deleteDocument(id)
-      setHistory((prev) => prev.filter((r) => r.id !== id))
-    } catch (err) {
-      console.error('Failed to delete document:', err)
-    }
+  const removeHistory = useCallback((id: string) => {
+    // Hide locally only — do NOT call api.deleteDocument (that would remove
+    // the uploaded file from the server). The file stays reopenable.
+    hiddenIdsRef.current.add(id)
+    saveHiddenIds(hiddenIdsRef.current)
+    setHistory((prev) => prev.filter((r) => r.id !== id))
   }, [])
 
-  const clearHistory = useCallback(async () => {
-    try {
-      await Promise.all(history.map((r) => api.deleteDocument(r.id)))
-      setHistory([])
-    } catch (err) {
-      console.error('Failed to clear history:', err)
-    }
-  }, [history])
+  const clearHistory = useCallback(() => {
+    // Hide every known document — nothing is deleted server-side.
+    hiddenIdsRef.current = new Set([
+      ...hiddenIdsRef.current,
+      ...allDocuments.map((r) => r.id),
+    ])
+    saveHiddenIds(hiddenIdsRef.current)
+    setHistory([])
+  }, [allDocuments])
 
-  return { history, loading, addHistory, removeHistory, clearHistory, refresh: fetchHistory }
+  /** Permanent delete — removes the file from storage (server/local disk).
+      Used by the "all files" picker with an explicit double-confirmation; the
+      record is also dropped from the local hidden list and both states. */
+  const deleteDocument = useCallback(async (id: string) => {
+    await api.deleteDocument(id)
+    hiddenIdsRef.current.delete(id)
+    saveHiddenIds(hiddenIdsRef.current)
+    setAllDocuments((prev) => prev.filter((r) => r.id !== id))
+    setHistory((prev) => prev.filter((r) => r.id !== id))
+  }, [])
+
+  return {
+    history,
+    allDocuments,
+    loading,
+    addHistory,
+    removeHistory,
+    clearHistory,
+    deleteDocument,
+    refresh: fetchHistory,
+  }
 }

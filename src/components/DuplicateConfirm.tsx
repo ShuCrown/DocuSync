@@ -32,7 +32,7 @@ export function DuplicateConfirm({ fileName, onConfirm, onCancel }: DuplicateCon
             <span className="text-sm text-text truncate">{fileName}</span>
           </div>
           <p className="text-sm text-text-secondary">
-            历史记录中已有同名文件，是否继续上传？
+            已上传过同名文件，继续将<b className="text-text">覆盖旧版本</b>（旧文件将被替换，不可恢复）。
           </p>
         </div>
 
@@ -48,7 +48,7 @@ export function DuplicateConfirm({ fileName, onConfirm, onCancel }: DuplicateCon
             onClick={onConfirm}
             className="px-3.5 py-1.5 text-sm font-medium text-white bg-primary rounded-md hover:bg-primary-dark transition-colors"
           >
-            继续上传
+            覆盖并上传
           </button>
         </div>
       </div>

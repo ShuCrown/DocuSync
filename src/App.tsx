@@ -106,7 +106,7 @@ function clampUiZoom(z: number): number {
 
 export default function App() {
   const { uploadedFile, error: uploadError, uploading, downloading, downloadProgress, handleFile, restoreFromRecord } = useFileUpload()
-  const { history, addHistory, removeHistory, clearHistory } = useFileHistory()
+  const { history, allDocuments, addHistory, removeHistory, clearHistory, deleteDocument, refresh: refreshHistory } = useFileHistory()
   const account = useAccount()
   const { services } = useAIServices()
   const {
@@ -119,6 +119,14 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [shareDoc, setShareDoc] = useState<{ id: string; name: string } | null>(null)
   const [pendingDuplicate, setPendingDuplicate] = useState<File | null>(null)
+  // Transient success/info banner (e.g. "同名文件已覆盖").
+  const [notice, setNotice] = useState<string | null>(null)
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const showNotice = useCallback((text: string) => {
+    setNotice(text)
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
+    noticeTimerRef.current = setTimeout(() => setNotice(null), 3500)
+  }, [])
   // Leaf currently running an upload/download via its TabBar + picker — drives
   // the spinner on the + button and disables picker interactions.
   const [busyLeafId, setBusyLeafId] = useState<string | null>(null)
@@ -360,8 +368,27 @@ export default function App() {
     const file = pendingDuplicate
     setPendingDuplicate(null)
     if (!file) return
+
+    // 1) Upload the NEW version first — a failure here never loses data.
     await proceedUpload(file)
-  }, [pendingDuplicate, proceedUpload])
+
+    // 2) Overwrite semantics: remove older same-name docs (true server
+    //    delete, unlike list-hiding). Failure only leaves a stale extra
+    //    copy; the new file is already safely uploaded.
+    const stale = history.filter((r) => r.name === file.name)
+    try {
+      await Promise.all(stale.map((r) => api.deleteDocument(r.id)))
+    } catch (err) {
+      console.error('Failed to remove overwritten copies:', err)
+      showNotice(`「${file.name}」已上传，但部分旧版本清理失败`)
+      refreshHistory()
+      return
+    }
+
+    // 3) Re-pull so the replaced copies disappear from 最近查看.
+    refreshHistory()
+    showNotice(`已用新版本覆盖同名文件「${file.name}」`)
+  }, [pendingDuplicate, proceedUpload, history, refreshHistory, showNotice])
 
   const handleDuplicateCancel = useCallback(() => {
     setPendingDuplicate(null)
@@ -401,9 +428,11 @@ export default function App() {
               />
               <FileHistory
                 history={history}
+                allDocuments={allDocuments}
                 onSelect={handleHistorySelect}
                 onRemove={removeHistory}
                 onClear={clearHistory}
+                onDelete={deleteDocument}
               />
             </div>
           </div>
@@ -415,6 +444,8 @@ export default function App() {
           docZoom={docZoom}
           shareDisabled={localMode}
           history={history}
+          allDocuments={allDocuments}
+          onDeleteDocument={deleteDocument}
           busyLeafId={busyLeafId}
           actions={splitGroupActions}
           onShare={handleShareForLeaf}
@@ -425,6 +456,14 @@ export default function App() {
       {pickerError && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[9999] px-3 py-2 rounded-lg bg-error/10 border border-error/30 text-error text-xs shadow-[0_4px_16px_rgba(0,0,0,0.1)]">
           {pickerError}
+        </div>
+      )}
+      {notice && (
+        <div
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[9999] px-3 py-2 rounded-lg bg-success/10 border border-success/30 text-success text-xs shadow-[0_4px_16px_rgba(0,0,0,0.1)]"
+          style={{ animation: 'docusync-toast-in 180ms ease-out' }}
+        >
+          {notice}
         </div>
       )}
     </>

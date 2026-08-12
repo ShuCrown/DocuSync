@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Search, X } from 'lucide-react'
+import { Search, Trash2 } from 'lucide-react'
 import type { FileRecord } from '../hooks/useFileHistory'
 import { getCategoryLabel } from '../utils/fileType'
 import { FileTypeIcon } from '../utils/fileIcon'
@@ -8,19 +8,23 @@ import { formatTime, formatSize } from '../utils/formatTime'
 interface HistoryPickerModalProps {
   records: FileRecord[]
   onSelect: (record: FileRecord) => void
-  /** Optional per-record removal (home page passes the real one). */
-  onRemove?: (id: string) => void
+  /** Permanent delete — requires an inline second confirmation before firing. */
+  onRemove?: (id: string) => void | Promise<void>
   onClose: () => void
 }
 
 /**
  * VSCode Quick-Open-style picker for the full history list: a centered panel
  * with a filter box on top, keyboard navigation (↑/↓ + Enter, Esc to close)
- * and a result list filtered by file name.
+ * and a result list filtered by file name. Picking a record opens it; the
+ * trailing delete button permanently removes the file after an inline
+ * confirmation ("删除" → "确认?"), so a stray click can never lose data.
  */
 export function HistoryPickerModal({ records, onSelect, onRemove, onClose }: HistoryPickerModalProps) {
   const [query, setQuery] = useState('')
   const [activeIdx, setActiveIdx] = useState(0)
+  const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -106,7 +110,7 @@ export function HistoryPickerModal({ records, onSelect, onRemove, onClose }: His
                   key={r.id}
                   data-active={active}
                   onMouseEnter={() => setActiveIdx(idx)}
-                  className={`flex items-center gap-2.5 px-3 transition-colors ${
+                  className={`flex items-center px-3 transition-colors ${
                     active ? 'bg-primary/10' : 'hover:bg-surface-alt/50'
                   }`}
                 >
@@ -125,18 +129,48 @@ export function HistoryPickerModal({ records, onSelect, onRemove, onClose }: His
                       </p>
                     </div>
                   </button>
-                  {onRemove && (
+
+                  {onRemove && (confirmId === r.id ? (
+                    <div className="flex items-center gap-1 shrink-0 ml-2">
+                      <span className="text-[11px] text-text-secondary whitespace-nowrap">确认删除？</span>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          setDeleting(true)
+                          try {
+                            await onRemove(r.id)
+                            setConfirmId(null)
+                          } finally {
+                            setDeleting(false)
+                          }
+                        }}
+                        disabled={deleting}
+                        className="px-2 py-1 text-[11px] font-medium text-white bg-error rounded-md hover:opacity-90 transition-opacity disabled:opacity-50"
+                      >
+                        删除
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setConfirmId(null)
+                        }}
+                        className="px-2 py-1 text-[11px] text-text-secondary hover:bg-surface-alt rounded-md transition-colors"
+                      >
+                        取消
+                      </button>
+                    </div>
+                  ) : (
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
-                        onRemove(r.id)
+                        setConfirmId(r.id)
                       }}
-                      className="p-1 rounded text-text-secondary/50 hover:text-error hover:bg-error/10 transition-colors shrink-0"
-                      title="从记录中移除"
+                      title="彻底删除该文件"
+                      className="p-1 rounded text-text-secondary/50 hover:text-error hover:bg-error/10 transition-colors shrink-0 ml-2"
                     >
-                      <X className="w-3.5 h-3.5" />
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
-                  )}
+                  ))}
                 </div>
               )
             })

@@ -31,6 +31,11 @@ interface TabBarProps {
   /** Disable share button (e.g. local storage mode). */
   shareDisabled?: boolean
   history: FileRecord[]
+  /** Every uploaded document (incl. records hidden from 最近查看) — the + popover
+      and its picker list these, so removed files stay reopenable. */
+  allDocuments?: FileRecord[]
+  /** Permanent delete from the all-files picker (double-confirmed). */
+  onDeleteDocument?: (id: string) => Promise<void> | void
   /** Whether a history download or upload is in flight (shows spinner). */
   pickerBusy?: boolean
   onSetActiveTab: (tabId: string) => void
@@ -61,6 +66,8 @@ export function TabBar({
   isActiveLeaf,
   shareDisabled,
   history,
+  allDocuments,
+  onDeleteDocument,
   pickerBusy,
   onSetActiveTab,
   onCloseTab,
@@ -168,6 +175,9 @@ export function TabBar({
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null
   const canShare = !shareDisabled && activeTab?.file.docId != null
+  // The + popover lists ALL uploaded docs (incl. records hidden from 最近查看)
+  // so removed files can still be reopened as a new tab.
+  const listRecords = allDocuments && allDocuments.length > 0 ? allDocuments : history
 
   return (
     <div
@@ -297,17 +307,18 @@ export function TabBar({
             </button>
           </div>
 
-          {/* History list — capped at MAX_VISIBLE; "更多" opens the searchable
-              full-list modal, picking one adds a new tab via onPickHistory. */}
+          {/* History list — all uploaded docs (incl. hidden records), capped at
+              MAX_VISIBLE; "更多" opens the searchable full-list modal, picking
+              one adds a new tab via onPickHistory. */}
           <div className="max-h-[50vh] overflow-y-auto divide-y divide-border">
-            {history.length === 0 ? (
+            {listRecords.length === 0 ? (
               <div className="flex items-center gap-2 px-3 py-4 text-xs text-text-secondary">
                 <Clock className="w-3.5 h-3.5" />
                 暂无历史文档
               </div>
             ) : (
               <>
-                {history.slice(0, MAX_VISIBLE).map((record) => (
+                {listRecords.slice(0, MAX_VISIBLE).map((record) => (
                   <button
                     key={record.id}
                     onClick={() => handleHistory(record)}
@@ -326,7 +337,7 @@ export function TabBar({
                     </div>
                   </button>
                 ))}
-                {history.length > MAX_VISIBLE && (
+                {listRecords.length > MAX_VISIBLE && (
                   <button
                     onClick={() => setHistModalOpen(true)}
                     disabled={pickerBusy}
@@ -404,8 +415,9 @@ export function TabBar({
           Picking a record downloads + opens a NEW TAB in this leaf. */}
       {histModalOpen && (
         <HistoryPickerModal
-          records={history}
+          records={listRecords}
           onSelect={handleHistory}
+          onRemove={onDeleteDocument}
           onClose={() => setHistModalOpen(false)}
         />
       )}
