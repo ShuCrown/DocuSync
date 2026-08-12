@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Settings } from 'lucide-react'
+import { Settings, ClipboardCheck } from 'lucide-react'
 import { useAIServices } from '../hooks/useAIServices'
 import { useZoomScale } from '../hooks/useZoom'
 import { AISettingsPanel } from './AISettingsPanel'
@@ -59,6 +59,11 @@ export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, ti
   const toolbarRef = useRef<HTMLDivElement>(null)
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const selectTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  // "已复制" toast — the AI chat is a THIRD-PARTY webpage (webview/iframe), so
+  // the app cannot write into its input box (cross-origin). The selected text
+  // is copied to the clipboard instead; the toast tells the user to paste.
+  const [copiedToast, setCopiedToast] = useState<{ msg: string; key: number } | null>(null)
+  const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   // Detect text selection on mouseup / keyup. Debounced so rapid keyboard
   // selection (Shift+arrows) doesn't flicker the toolbar.
@@ -176,6 +181,16 @@ export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, ti
     await copyToClipboard(text)
     openService(service)
 
+    // Toast: the selection is already on the clipboard — paste it into the
+    // chat's input box. (The chat page is a third-party site; cross-origin
+    // rules prevent auto-filling its input.)
+    clearTimeout(toastTimer.current)
+    setCopiedToast({
+      msg: `已复制选中内容（${text.length} 字）· 已在 ${service.name} 输入框粘贴提问`,
+      key: Date.now(),
+    })
+    toastTimer.current = setTimeout(() => setCopiedToast(null), 4000)
+
     window.getSelection()?.removeAllRanges()
     setPos(null)
     setText('')
@@ -256,6 +271,20 @@ export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, ti
             onReset={resetToDefaults}
             onClose={() => setSettingsOpen(false)}
           />
+        </div>
+      )}
+
+      {/* Copied-toast — top-center, above every layer (chat panels z-9998,
+          modals z-10001) so it is visible even with a chat docked. */}
+      {copiedToast && (
+        <div
+          key={copiedToast.key}
+          className="fixed left-1/2 -translate-x-1/2 top-14 z-[10002] flex items-center gap-2 px-3.5 py-2 bg-surface-card border border-border/60 rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.12)] text-xs text-text-secondary"
+          style={{ animation: 'docusync-toast-in .18s ease-out' }}
+        >
+          <ClipboardCheck className="w-3.5 h-3.5 text-primary shrink-0" />
+          <span>{copiedToast.msg}</span>
+          <span className="opacity-60 whitespace-nowrap">⌘/Ctrl + V 粘贴</span>
         </div>
       )}
     </>,

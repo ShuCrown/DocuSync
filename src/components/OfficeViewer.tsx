@@ -16,7 +16,17 @@ interface OfficeViewerProps {
 /** Cache for extracted text (used by AI summary) */
 const textCache = new Map<string, string>()
 
-function normalizeDocxImageSvgs(container: HTMLElement, onImageClick?: (src: string) => void) {
+/**
+ * Enable click-to-preview on every image docx-preview rendered:
+ *   - `<svg><image>`  — VML pictures (`w:pict`, legacy Word format)
+ *   - plain `<img>`   — DrawingML pictures (`w:drawing`/`a:blip`, the modern
+ *     Word default, rendered by docx-preview's renderImage()).
+ * Without the second pass, DrawingML images are not clickable, so "some docx
+ * images preview, some don't" — depending on which markup the file was saved
+ * with.
+ */
+function normalizeDocxImages(container: HTMLElement, onImageClick?: (src: string) => void) {
+  // 1) VML pictures → svg containing <image>
   container.querySelectorAll<SVGSVGElement>('svg').forEach(svg => {
     const containsImage = Boolean(svg.querySelector('image'))
 
@@ -38,15 +48,57 @@ function normalizeDocxImageSvgs(container: HTMLElement, onImageClick?: (src: str
       }
     }
 
+    // Ensure a viewBox so the CSS `width: 100%` actually SCALES the picture
+    // content instead of just stretching an empty frame. docx-preview writes
+    // the svg's width/height ATTRIBUTES in a requestAnimationFrame after
+    // render, so they may not exist when this pass runs — fall back to the
+    // rendered box (the svg is laid out by now) to build a valid viewBox.
     if (!svg.getAttribute('viewBox')) {
-      const width = Number.parseFloat(svg.getAttribute('width') ?? '')
-      const height = Number.parseFloat(svg.getAttribute('height') ?? '')
+      let width = Number.parseFloat(svg.getAttribute('width') ?? '')
+      let height = Number.parseFloat(svg.getAttribute('height') ?? '')
+
+      if (!(Number.isFinite(width) && width > 0) || !(Number.isFinite(height) && height > 0)) {
+        const rect = svg.getBoundingClientRect()
+        if (!Number.isFinite(width) || width <= 0) width = rect.width
+        if (!Number.isFinite(height) || height <= 0) height = rect.height
+      }
 
       if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) {
         svg.setAttribute('viewBox', `0 0 ${width} ${height}`)
       }
     }
   })
+
+  // 2) DrawingML pictures → <img> (src is a blob URL resolved asynchronously
+  // by docx-preview after render; by the time we run this pass it is set).
+  if (onImageClick) {
+    container.querySelectorAll<HTMLImageElement>('img').forEach((img) => {
+      img.classList.add('docx-render-image-img')
+      if (img.dataset.previewBound) return
+      img.dataset.previewBound = 'true'
+      img.style.cursor = 'pointer'
+      img.addEventListener('click', (e) => {
+        e.stopPropagation()
+        const src = img.currentSrc || img.src
+        if (src) onImageClick(src)
+      })
+
+      // docx-preview wraps each DrawingML picture in a <div style="display:
+      // inline-block; width: <fixed>; height: <fixed>">. The fixed inline-block
+      // box wins over the image's `width:100%` (percentages resolve against
+      // that fixed box), so the picture never scales with the preview width —
+      // AND the fixed height keeps the wrapper shorter than the scaled image,
+      // letting the image overflow and cover the content below. Force the
+      // wrapper to block + auto so the image reflows and takes up its own
+      // (scaled) height in the document flow.
+      const parent = img.parentElement
+      if (parent && parent.tagName === 'DIV' && getComputedStyle(parent).display === 'inline-block') {
+        parent.style.display = 'block'
+        parent.style.width = '100%'
+        parent.style.height = 'auto'
+      }
+    })
+  }
 }
 
 /**
@@ -60,7 +112,10 @@ function normalizeDocxImageSvgs(container: HTMLElement, onImageClick?: (src: str
  * toggling the scroller's overflow forces WebKit to drop the stale range.
  */
 function forceScrollReflow(container: HTMLElement) {
-  const scroller = container.closest<HTMLElement>('.office-doc')
+  // The scroller is the outer .doc-zoom-scroller (the zoom layer's parent);
+  // fall back to the old inner .office-doc scroller for safety.
+  const scroller = container.closest<HTMLElement>('.doc-zoom-layer')?.parentElement
+    ?? container.closest<HTMLElement>('.office-doc')
   // Reading these sizes synchronously forces a layout/reflow pass.
   void container.scrollHeight
   if (!scroller) return
@@ -127,13 +182,14 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
 
         // docx-preview measures VML drawings in requestAnimationFrame and writes
         // fixed SVG width/height attributes. Normalize after that pass so CSS can
-        // scale document images with the preview pane. Also force a scroll-range
+        // scale document images with the preview pane, and bind click-to-preview
+        // on BOTH svg (VML) and img (DrawingML) images. Also force a scroll-range
         // refresh for the outer scroller (WKWebView keeps a stale composited
         // range while the DOM is inserted asynchronously — see forceScrollReflow).
         requestAnimationFrame(() => {
-          normalizeDocxImageSvgs(el, handleImageClick)
+          normalizeDocxImages(el, handleImageClick)
           requestAnimationFrame(() => {
-            normalizeDocxImageSvgs(el, handleImageClick)
+            normalizeDocxImages(el, handleImageClick)
             forceScrollReflow(el)
             requestAnimationFrame(() => forceScrollReflow(el))
           })

@@ -140,6 +140,33 @@ body {
   overscroll-behavior: contain;
 }
 
+/* The ONE scroller that owns the preview scroll gesture. It sits OUTSIDE the
+   document zoom layer (doc-zoom-layer), so the viewport and its scrollbar stay
+   full-height at any zoom — the content scales inside it instead. Give it the
+   same WKWebView compositing-layer hardening the inner scrollers used to have. */
+.doc-zoom-scroller {
+  transform: translateZ(0);
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* Inside the zoom layer, viewer-internal scrollers are disabled: their
+   scrollbar would shrink with the transform and they'd fight the outer
+   scroller for the wheel gesture (WKWebView nested-scroller bug). Content
+   overflows the zoom layer and the outer .doc-zoom-scroller scrolls it. */
+.doc-zoom-layer .office-doc,
+.doc-zoom-layer .markdown-body,
+.doc-zoom-layer .pdf-scroller {
+  overflow: visible !important;
+  height: auto !important;
+}
+
+.doc-zoom-layer .office-doc [class*="overflow-auto"],
+.doc-zoom-layer .office-doc [class*="overflow-y-auto"],
+.doc-zoom-layer .office-doc [class*="overflow-x-auto"] {
+  overflow: visible !important;
+}
+
 .office-doc p,
 .office-doc li,
 .office-doc td,
@@ -318,6 +345,13 @@ body {
   margin-bottom: 0 !important;
   box-shadow: none !important;
   background: transparent !important;
+  /* CRITICAL: without a fixed width, the section (and every child down to
+     images/tables) sizes to its CONTENT width — a fixed-size VML image makes
+     the whole chain fixed, so `width:100%` on the image resolves to itself
+     and images never shrink with the preview. ignoreWidth:true skips the
+     document's page width, so we restore 100% here. */
+  width: 100% !important;
+  max-width: 100% !important;
 }
 
 /* Override inline pageMargins padding set by createPageElement */
@@ -389,12 +423,43 @@ body {
   margin: 1em auto !important;
 }
 
+/* DrawingML pictures are plain <img> with fixed inline width/height from the
+   document — make them scale with the preview width exactly like the VML svg
+   images above (fills the readable area, shrinks/grows with the pane/zoom). */
+.docx-render-container img.docx-render-image-img {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+  margin: 1em auto !important;
+}
+
 /* Table fallback styling when the document doesn't specify borders */
 .docx-render-container table {
   border-collapse: collapse;
+  /* Force tables to fit the preview width. docx-preview reads the document's
+     <w:tblW> into a FIXED inline width — older WPS/Word-compat files write a
+     full-page tblW + tblLayout:fixed, so without this the table stays at its
+     fixed width and overflows/shrinks oddly on narrow previews. width:100%
+     + table-layout:auto makes every table reflow to the container width. */
+  width: 100% !important;
+  max-width: 100% !important;
+  table-layout: auto !important;
 }
 
 .docx-render-container td,
 .docx-render-container th {
   vertical-align: middle;
+}
+
+/* Copied-selection toast entrance (SelectionToolbar) */
+@keyframes docusync-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -6px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }

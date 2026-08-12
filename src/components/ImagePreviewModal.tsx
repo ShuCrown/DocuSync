@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 
 interface ImagePreviewModalProps {
@@ -67,9 +68,9 @@ export function ImagePreviewModal({ src, onClose }: ImagePreviewModalProps) {
     setPosition({ x: 0, y: 0 })
   }, [])
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 cursor-zoom-out"
+      className="fixed inset-0 z-[10002] flex items-center justify-center bg-black/80 cursor-zoom-out"
       onClick={onClose}
     >
       {/* Close button */}
@@ -101,6 +102,7 @@ export function ImagePreviewModal({ src, onClose }: ImagePreviewModalProps) {
         onWheel={handleWheel}
         draggable={false}
       />
-    </div>
+    </div>,
+    document.body,
   )
 }

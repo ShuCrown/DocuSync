@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo, forwardRef } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import {
   Loader2,
@@ -40,6 +40,32 @@ import { ZoomScaleContext } from './hooks/useZoom'
 import * as api from './lib/api'
 import type { FileRecord } from './hooks/useFileHistory'
 import type { UploadedFile } from './hooks/useFileUpload'
+
+/**
+ * Per-preview scroll + zoom wrapper. The scroller (.doc-zoom-scroller) sits
+ * OUTSIDE the zoom layer (.doc-zoom-layer), so the viewport and its scrollbar
+ * stay full-height at any zoom while only the content scales; split panes each
+ * render their own ZoomScroller so the two panes scroll INDEPENDENTLY. The
+ * zoom layer has no fixed height — content sizes it, so the scroller sees the
+ * full (scaled) content height and can scroll to the bottom.
+ */
+const ZoomScroller = forwardRef<HTMLDivElement, { docZoom: number; children: React.ReactNode }>(
+  ({ docZoom, children }, ref) => (
+    <div ref={ref} className="doc-zoom-scroller flex-1 min-h-0 overflow-auto">
+      <div
+        className="doc-zoom-layer"
+        style={{
+          width: `calc(100% / ${docZoom})`,
+          transform: `scale(${docZoom})`,
+          transformOrigin: 'top left',
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  ),
+)
+ZoomScroller.displayName = 'ZoomScroller'
 
 /**
  * Resolve the AI service hosting a chat panel by its `currentUrl`. Exact URL
@@ -383,8 +409,11 @@ export default function App() {
   }, [paneA, uploadedFile, setPaneA, enterSplit, addHistory, captureSingleScroll])
 
   const isSplit = splitMode === 'split' && paneA
+  const singleFile = paneA ?? uploadedFile
 
-  // Scroll position tracking — key by document identity so position follows the document on swap.
+  // Per-viewer scroll position tracking — each pane owns its own scroller so
+  // split views scroll INDEPENDENTLY (no synchronized scrolling). Key by
+  // document identity so position follows the document on swap.
   const paneAScrollRef = useScrollPosition(
     paneA ? (paneA.docId ?? paneA.file.name) : null,
     initialPaneAPos.current, // eslint-disable-line react-hooks/refs -- stable ref, read once per mount
@@ -392,7 +421,6 @@ export default function App() {
   const paneBScrollRef = useScrollPosition(
     paneB ? (paneB.docId ?? paneB.file.name) : null,
   )
-  const singleFile = paneA ?? uploadedFile
   const singleScrollPositionRef = useScrollPosition(
     singleFile ? (singleFile.docId ?? singleFile.file.name) : null,
   )
@@ -414,14 +442,14 @@ export default function App() {
         onHide={() => hidePane('a')}
         onShare={!localMode && paneA?.docId ? () => handleShareOpen(paneA.docId!, paneA.file.name) : undefined}
       />
-      <div ref={paneAScrollRef} className="flex-1 overflow-auto">
+      <ZoomScroller ref={paneAScrollRef} docZoom={docZoom}>
         <DocumentViewer
           uploaded={paneA!}
           onTextExtracted={() => {}}
         />
-      </div>
+      </ZoomScroller>
     </div>
-  ), [paneA, activePane, handlePaneAClose, handlePaneFocus, paneAScrollRef, handleShareOpen, localMode, hidePane])
+  ), [paneA, activePane, handlePaneAClose, handlePaneFocus, handleShareOpen, localMode, hidePane, paneAScrollRef, docZoom])
 
   const paneBElement = useMemo(() => (
     <div className="h-full flex flex-col">
@@ -435,14 +463,14 @@ export default function App() {
         onHide={() => hidePane('b')}
         onShare={!localMode && paneB?.docId ? () => handleShareOpen(paneB.docId!, paneB.file.name) : undefined}
       />
-      <div ref={paneBScrollRef} className="flex-1 overflow-auto">
+      <ZoomScroller ref={paneBScrollRef} docZoom={docZoom}>
         <DocumentViewer
           uploaded={paneB!}
           onTextExtracted={() => {}}
         />
-      </div>
+      </ZoomScroller>
     </div>
-  ), [paneB, activePane, handlePaneBClose, handleReplacePaneB, handlePaneFocus, paneBScrollRef, handleShareOpen, localMode, hidePane])
+  ), [paneB, activePane, handlePaneBClose, handleReplacePaneB, handlePaneFocus, handleShareOpen, localMode, hidePane, paneBScrollRef, docZoom])
 
   // Picker view for pane B when no file is selected (same layout as home page)
   const handlePickerFile = useCallback(async (file: File) => {
@@ -519,22 +547,24 @@ export default function App() {
   const mainContent = (
     <>
       {!paneA && !uploadedFile ? (
-        <div className="flex-1 flex items-start justify-center px-4 sm:px-6 py-8">
-          <div className="w-full max-w-2xl">
-            <FileUpload
-              onFile={handleFileWithHistory}
-              currentFile={null}
-              uploading={uploading}
-              error={uploadError}
-            />
-            <FileHistory
-              history={history}
-              onSelect={handleHistorySelect}
-              onRemove={removeHistory}
-              onClear={clearHistory}
-            />
+        <ZoomScroller docZoom={docZoom}>
+          <div className="flex-1 flex items-start justify-center px-4 sm:px-6 py-8">
+            <div className="w-full max-w-2xl">
+              <FileUpload
+                onFile={handleFileWithHistory}
+                currentFile={null}
+                uploading={uploading}
+                error={uploadError}
+              />
+              <FileHistory
+                history={history}
+                onSelect={handleHistorySelect}
+                onRemove={removeHistory}
+                onClear={clearHistory}
+              />
+            </div>
           </div>
-        </div>
+        </ZoomScroller>
       ) : isSplit ? (
         // SplitPane stays mounted across hide/restore — the hidden pane is
         // display:none (CSS only), so neither DocumentViewer remounts and both
@@ -557,12 +587,12 @@ export default function App() {
             onClose={handleClear}
             onShare={!localMode && singleFile?.docId ? () => handleShareOpen(singleFile.docId!, singleFile.file.name) : undefined}
           />
-          <div ref={handleSingleScrollRef} className="flex-1 overflow-auto">
+          <ZoomScroller ref={handleSingleScrollRef} docZoom={docZoom}>
             <DocumentViewer
               uploaded={singleFile!}
               onTextExtracted={() => {}}
             />
-          </div>
+          </ZoomScroller>
         </div>
       )}
     </>
@@ -720,29 +750,17 @@ export default function App() {
           onDocZoomOut={() => setDocZoom((z) => clampDocZoom(z - DOC_ZOOM_STEP))}
           onDocZoomReset={() => setDocZoom(1)}
         >
-          {/* Document area — wrapped in its own browser-like zoom layer. The
-              wrapper lays out at (100%/docZoom × 100%/docZoom) logical size
-              and is scaled up to fill the region, so the document reflows
-              like browser page zoom while the chat column keeps its width.
-              Fixed-position siblings (chat panels, toolbars, restore tabs)
-              live OUTSIDE this layer and use real viewport coordinates.
-              The wrapper is a flex column so `flex-1` children (home, single
-              doc, split) stretch to its height — as a plain block the height
-              chain breaks (flex-1 is a no-op), the inner scroller grows to
-              its content height and scrollHeight === clientHeight, making
-              multi-page documents impossible to scroll. */}
-          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-            <div
-              className="flex flex-col min-h-0"
-              style={{
-                width: `calc(100% / ${docZoom})`,
-                height: `calc(100% / ${docZoom})`,
-                transform: `scale(${docZoom})`,
-                transformOrigin: 'top left',
-              }}
-            >
-              {mainContent}
-            </div>
+          {/* Document area — each preview (home / single doc / split pane) is
+              its own ZoomScroller: the scroller (.doc-zoom-scroller) sits
+              OUTSIDE that pane's zoom layer (.doc-zoom-layer), so the viewport
+              and scrollbar always stay full-height while only the content
+              scales; and split panes each own a scroller, so the two panes
+              scroll INDEPENDENTLY. Inner viewers (office-doc / markdown-body /
+              pdf) have their own scrolling disabled via CSS under
+              .doc-zoom-layer, so each pane's scroller owns the gesture
+              (WKWebView-safe). */}
+          <div className="flex-1 flex flex-col min-h-0">
+            {mainContent}
           </div>
 
           {/* One ChatPanel per AI service — multiple panels coexist; docked
