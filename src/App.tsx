@@ -611,7 +611,7 @@ export default function App() {
           onBack={handleClear}
           email={account.email}
           onAccountOpen={localMode ? undefined : handleAccountOpen}
-          onSettingsOpen={handleSettingsOpen}
+          onSettingsOpen={isTauri() ? handleSettingsOpen : undefined}
           chatSplitWidth={splitWidth != null && !chatCollapsed ? splitWidth + 14 : undefined}
           docZoom={docZoom}
           onDocZoomIn={() => setDocZoom((z) => clampDocZoom(z + DOC_ZOOM_STEP))}
