@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Settings, ClipboardCheck } from 'lucide-react'
+import { Settings, ClipboardCheck, Layers } from 'lucide-react'
 import { useAIServices } from '../hooks/useAIServices'
 import { useZoomScale } from '../hooks/useZoom'
 import { AISettingsPanel } from './AISettingsPanel'
@@ -50,7 +50,7 @@ const VIEWPORT_MARGIN = 8
 
 // --- Component ---
 
-export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, title: string) => void }) {
+export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, title: string, prompt?: string) => void }) {
   const { services, enabledServices, addService, removeService, moveService, toggleService, updateService, resetToDefaults } = useAIServices()
   const scale = useZoomScale()
   const [text, setText] = useState('')
@@ -163,9 +163,9 @@ export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, ti
     }
   }
 
-  const openService = (service: AIService) => {
+  const openService = (service: AIService, prompt?: string) => {
     if (onOpenChat) {
-      onOpenChat(service.url, service.name)
+      onOpenChat(service.url, service.name, prompt)
     } else {
       const w = 900, h = 700
       window.open(
@@ -176,24 +176,46 @@ export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, ti
     }
   }
 
+  const dismissToolbar = () => {
+    window.getSelection()?.removeAllRanges()
+    setPos(null)
+    setText('')
+  }
+
   const handleServiceClick = async (service: AIService) => {
     if (!text) return
     await copyToClipboard(text)
-    openService(service)
+    openService(service, text)
 
-    // Toast: the selection is already on the clipboard — paste it into the
-    // chat's input box. (The chat page is a third-party site; cross-origin
-    // rules prevent auto-filling its input.)
+    // In Tauri the prompt is auto-filled (and sent) via an injected script;
+    // in the browser the text is on the clipboard for a manual paste.
     clearTimeout(toastTimer.current)
     setCopiedToast({
-      msg: `已复制选中内容（${text.length} 字）· 已在 ${service.name} 输入框粘贴提问`,
+      msg: `已复制选中内容（${text.length} 字）· 已在 ${service.name} 自动填入并发送`,
       key: Date.now(),
     })
     toastTimer.current = setTimeout(() => setCopiedToast(null), 4000)
 
-    window.getSelection()?.removeAllRanges()
-    setPos(null)
-    setText('')
+    dismissToolbar()
+  }
+
+  // "全部打开" — open EVERY enabled AI service at once with the selected text
+  // auto-filled into each one, so the user can ask all services in parallel
+  // without clicking each icon. The text is also copied to the clipboard as a
+  // fallback (browser mode can't auto-fill cross-origin iframes).
+  const handleOpenAll = async () => {
+    if (!text || enabledServices.length === 0) return
+    await copyToClipboard(text)
+    enabledServices.forEach((s) => openService(s, text))
+
+    clearTimeout(toastTimer.current)
+    setCopiedToast({
+      msg: `已复制并同时在 ${enabledServices.length} 个 AI 服务填入选中内容并发送`,
+      key: Date.now(),
+    })
+    toastTimer.current = setTimeout(() => setCopiedToast(null), 4000)
+
+    dismissToolbar()
   }
 
   if (!pos || !text) return null
@@ -226,6 +248,23 @@ export function SelectionToolbar({ onOpenChat }: { onOpenChat?: (url: string, ti
         {pos.placement === 'below' && arrowEl}
 
         <div className="flex items-center gap-1 px-2 py-1.5 bg-surface-card rounded-lg shadow-[0_4px_16px_rgba(44,40,37,0.16)] border border-border/60">
+          {/* "Open all" — fire the selected text into EVERY enabled AI service
+              at once (auto-filled + auto-submitted in Tauri). Only shown when
+              more than one service is enabled. */}
+          {enabledServices.length > 1 && (
+            <>
+              <button
+                onClick={handleOpenAll}
+                className="flex items-center justify-center w-8 h-8 rounded-md hover:bg-surface-alt transition-colors text-text-secondary hover:text-primary"
+                title={`全部打开（${enabledServices.length} 个服务）并自动填入发送`}
+                aria-label={`全部打开 ${enabledServices.length} 个 AI 服务并自动填入发送`}
+              >
+                <Layers className="w-4 h-4" />
+              </button>
+              <div className="w-px h-5 bg-border mx-0.5" />
+            </>
+          )}
+
           {/* AI services — copy selection and open chat */}
           {enabledServices.map((s) => (
             <button

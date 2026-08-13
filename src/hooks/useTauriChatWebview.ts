@@ -109,11 +109,19 @@ function useChatWebview(
    * the rest of the interface (the webview element is sized at the scaled
    * rect; this makes the page lay out at the logical size). */
   scale = 1,
+  /** Selected text to auto-fill into the chat input box. Injected as an init
+   * script at webview creation; re-applied via `eval` (fill_ai_chat_webview)
+   * when it changes on an already-existing webview. `null` = no auto-fill. */
+  prompt: string | null = null,
 ) {
   const appliedRef = useRef<Bounds | null>(null)
   const urlRef = useRef<string | null>(null)
   const rafRef = useRef<number>(0)
   const hiddenRef = useRef(false)
+  // Tracks the prompt already applied to the webview (via init script or
+  // fill_ai_chat_webview) so the prompt-change effect only fires on real
+  // changes, not on every render.
+  const promptAppliedRef = useRef<string | null>(null)
 
   const apply = useCallback(async () => {
     if (!isTauri()) return
@@ -147,8 +155,10 @@ function useChatWebview(
           bounds,
           overlay: getPaperOverlay(),
           scale,
+          prompt: prompt || null,
         })
         hiddenRef.current = false
+        promptAppliedRef.current = prompt
       } else if (hiddenRef.current) {
         await invoke('show_ai_chat_webview', { label, bounds })
         hiddenRef.current = false
@@ -160,7 +170,25 @@ function useChatWebview(
     } catch (err) {
       console.error(`[useTauriChatWebview] failed to sync webview (${label}):`, err)
     }
-  }, [url, label, contentRef, scale])
+  }, [url, label, contentRef, scale, prompt])
+
+  // Prompt changed on an ALREADY-EXISTING webview (user re-opened the same
+  // service with new selected text). The webview is NOT recreated (that would
+  // lose the conversation), so the prompt is re-applied via `eval`. Skipped
+  // when the webview does not exist yet — creation in `apply` injects the
+  // prompt as an init script.
+  useEffect(() => {
+    if (!isTauri()) return
+    if (prompt === promptAppliedRef.current) return
+    if (urlRef.current === null) {
+      promptAppliedRef.current = prompt
+      return
+    }
+    promptAppliedRef.current = prompt
+    if (prompt) {
+      invoke('fill_ai_chat_webview', { label, prompt }).catch(() => {})
+    }
+  }, [prompt, label])
 
   const schedule = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current)
@@ -179,6 +207,7 @@ function useChatWebview(
       appliedRef.current = null
       urlRef.current = null
       hiddenRef.current = false
+      promptAppliedRef.current = null
       invoke('close_ai_chat_webview', { label }).catch(() => {})
       return
     }
@@ -203,6 +232,7 @@ function useChatWebview(
       appliedRef.current = null
       urlRef.current = null
       hiddenRef.current = false
+      promptAppliedRef.current = null
       invoke('close_ai_chat_webview', { label }).catch(() => {})
       return
     }
@@ -215,6 +245,7 @@ function useChatWebview(
         urlRef.current = null
         appliedRef.current = null
         hiddenRef.current = false
+        promptAppliedRef.current = null
         invoke('close_ai_chat_webview', { label }).catch(() => {})
       }
       return
@@ -285,5 +316,6 @@ export function useTauriChatWebview(
     layoutKey ?? panel.dockDirection,
     hidden,
     uiZoom * panel.zoom,
+    panel.pendingPrompt,
   )
 }

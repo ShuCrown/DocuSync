@@ -54,6 +54,11 @@ export interface ChatPanelState {
   /** Per-panel zoom of the chat content (1 = 100%). Independent from the
    * document-area zoom — each chat can be scaled to its own display ratio. */
   zoom: number
+  /** Selected text to auto-fill into the chat input box. Set when the panel is
+   * opened from the selection toolbar; consumed once by the native webview
+   * creation (injected as an init script) and re-applied via `eval` when the
+   * user re-opens the same service with new text. `null` = no auto-fill. */
+  pendingPrompt: string | null
   switchToSplit: () => void
   switchToFloating: () => void
   collapse: () => void
@@ -67,7 +72,7 @@ export interface ChatPanelState {
 
 export interface ChatPanelsState {
   panels: ChatPanelState[]
-  openChat: (url: string, title: string) => void
+  openChat: (url: string, title: string, prompt?: string) => void
   /**
    * Resize two adjacent docked panels via a divider drag: `topId` gets
    * `topRatio` of the docked column, `bottomId` gets the rest.
@@ -89,6 +94,7 @@ interface PanelData {
   rect: FloatingRect
   dockRatio: number
   zoom: number
+  prompt: string | null
 }
 
 const SPLIT_MIN = 300
@@ -269,14 +275,26 @@ export function useChatPanel(): ChatPanelsState {
   // Open chat: reuse the panel already hosting this service (restore/focus it),
   // otherwise create a NEW panel. New panels inherit the last used layout, so
   // they can dock directly into the sidebar alongside existing panels.
-  const openChat = useCallback((url: string, title: string) => {
+  //
+  // `prompt` (optional) is the selected text to auto-fill into the chat input.
+  // For a NEW panel it is injected as an init script at webview creation; for
+  // an EXISTING panel the webview is NOT recreated (that would lose the
+  // conversation), so the prompt is stored and re-applied via `eval` by
+  // useTauriChatWebview when it detects the change.
+  const openChat = useCallback((url: string, title: string, prompt?: string) => {
     setData((prev) => {
       const existing = prev.find((p) => p.url === url)
       if (existing) {
         const target = existing.mode === 'collapsed' || existing.mode === 'closed'
           ? lastModeRef.current
           : existing.mode
-        return applyMode(prev, existing.id, target)
+        const withMode = applyMode(prev, existing.id, target)
+        // Update the prompt so a re-open with new text re-triggers auto-fill.
+        return withMode.map((p) =>
+          p.id === existing.id
+            ? { ...p, prompt: prompt !== undefined ? prompt : p.prompt }
+            : p,
+        )
       }
       const id = genId()
       const initialMode: ChatPanelMode = lastModeRef.current
@@ -284,7 +302,7 @@ export function useChatPanel(): ChatPanelsState {
       const rect = { ...FLOAT_DEFAULT, x: FLOAT_DEFAULT.x + offset, y: FLOAT_DEFAULT.y + offset }
       return normalizeDockRatios([
         ...prev,
-        { id, mode: initialMode, url, title, rect, dockRatio: 1, zoom: readPanelZoom(id) },
+        { id, mode: initialMode, url, title, rect, dockRatio: 1, zoom: readPanelZoom(id), prompt: prompt ?? null },
       ])
     })
   }, [])
@@ -332,6 +350,7 @@ export function useChatPanel(): ChatPanelsState {
     splitWidth,
     floatingRect: p.rect,
     zoom: p.zoom,
+    pendingPrompt: p.prompt,
     switchToSplit: () => setPanelMode(p.id, 'split'),
     switchToFloating: () => setPanelMode(p.id, 'floating'),
     collapse: () => setPanelMode(p.id, 'collapsed'),

@@ -122,6 +122,93 @@ fn paper_overlay_script(overlay: &PaperOverlay) -> String {
     )
 }
 
+/// Build the auto-fill script that pastes a prompt into the AI page's input
+/// box and attempts to submit it.
+///
+/// The AI pages live in a native child webview the app controls, so unlike a
+/// cross-origin iframe we CAN inject script into them. The script:
+///   1. Polls for an input element (pages load asynchronously) — tries a
+///      `<textarea>` first, then a `[contenteditable]`.
+///   2. Sets the value using the React-compatible native-setter trick (simply
+///      assigning `.value` does not update React's internal state).
+///   3. After filling, waits briefly and tries to submit — clicking a button
+///      whose label/aria matches common send keywords, otherwise simulating
+///      Enter on the textarea.
+///
+/// Best-effort: each AI service has a different DOM, so success is not
+/// guaranteed. When auto-fill or auto-submit fails the user still has the text
+/// on the clipboard (copied by the frontend) and can paste + send manually.
+fn autofill_script(prompt: &str) -> String {
+    let json = serde_json::to_string(prompt).unwrap_or_else(|_| "\"\"".to_string());
+    format!(
+        r#"(function(){{
+  var PROMPT = {json};
+  if (!PROMPT) return;
+  function tryFill(){{
+    var ta = document.querySelector('textarea');
+    if (ta && !ta.disabled) {{
+      var proto = window.HTMLTextAreaElement.prototype;
+      var desc = Object.getOwnPropertyDescriptor(proto, 'value');
+      if (desc && desc.set) {{ desc.set.call(ta, PROMPT); }}
+      else {{ ta.value = PROMPT; }}
+      ta.dispatchEvent(new Event('input', {{ bubbles: true }}));
+      ta.dispatchEvent(new Event('change', {{ bubbles: true }}));
+      ta.focus();
+      return true;
+    }}
+    var ce = document.querySelector('[contenteditable="true"]');
+    if (ce) {{
+      ce.focus();
+      try {{ document.execCommand('selectAll', false, null); }} catch (e) {{}}
+      try {{ document.execCommand('insertText', false, PROMPT); }} catch (e) {{}}
+      if (!(ce.textContent || '').trim()) {{
+        ce.textContent = PROMPT;
+        ce.dispatchEvent(new InputEvent('input', {{ bubbles: true, inputType: 'insertText', data: PROMPT }}));
+      }}
+      return true;
+    }}
+    return false;
+  }}
+  function trySend(){{
+    var btns = document.querySelectorAll('button:not([disabled]), [role="button"]:not([disabled]), [type="submit"]:not([disabled])');
+    var keywords = ['send', '发送', 'submit', '提交', 'search', '搜索', 'ask', '提问'];
+    for (var i = 0; i < btns.length; i++) {{
+      var b = btns[i];
+      var aria = (b.getAttribute('aria-label') || '').toLowerCase();
+      var text = (b.textContent || '').trim().toLowerCase();
+      for (var k = 0; k < keywords.length; k++) {{
+        if (aria.indexOf(keywords[k]) >= 0 || text.indexOf(keywords[k]) >= 0) {{
+          b.click();
+          return true;
+        }}
+      }}
+    }}
+    var ta = document.querySelector('textarea');
+    if (ta) {{
+      var evOpts = {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }};
+      ta.dispatchEvent(new KeyboardEvent('keydown', evOpts));
+      ta.dispatchEvent(new KeyboardEvent('keypress', evOpts));
+      ta.dispatchEvent(new KeyboardEvent('keyup', evOpts));
+      return true;
+    }}
+    return false;
+  }}
+  var attempts = 0;
+  var filled = false;
+  var interval = setInterval(function(){{
+    if (!filled && tryFill()) {{
+      filled = true;
+      setTimeout(function(){{ trySend(); clearInterval(interval); }}, 500);
+      return;
+    }}
+    if (filled || attempts++ > 80) {{ clearInterval(interval); }}
+  }}, 250);
+}})();
+"#,
+        json = json
+    )
+}
+
 #[tauri::command]
 async fn create_ai_chat_webview(
     window: tauri::Window,
@@ -131,6 +218,11 @@ async fn create_ai_chat_webview(
     bounds: Bounds,
     overlay: Option<PaperOverlay>,
     scale: f64,
+    /// Selected text to auto-fill into the chat input box (and attempt to
+    /// submit). When `Some`, an initialization script is injected that polls
+    /// for the page's input element and fills it. Best-effort: the text is
+    /// ALSO copied to the clipboard by the frontend as a fallback.
+    prompt: Option<String>,
 ) -> Result<(), String> {
     let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
     let url: url::Url = url.parse().map_err(|e| format!("invalid url: {e}"))?;
@@ -142,10 +234,18 @@ async fn create_ai_chat_webview(
         wv.set_size(size).map_err(|e| e.to_string())?;
         wv.navigate(url).map_err(|e| e.to_string())?;
         wv.set_zoom(scale).map_err(|e| e.to_string())?;
+        // Webview reused (URL changed) — re-run the auto-fill script against
+        // the freshly navigated page so the prompt lands in the input box.
+        if let Some(p) = &prompt {
+            let _ = wv.eval(&autofill_script(p));
+        }
     } else {
         let mut builder = tauri::webview::WebviewBuilder::new(label.clone(), WebviewUrl::External(url));
         if let Some(overlay) = overlay {
             builder = builder.initialization_script(paper_overlay_script(&overlay));
+        }
+        if let Some(p) = &prompt {
+            builder = builder.initialization_script(autofill_script(p));
         }
         let wv = window
             .add_child(builder, position, size)
@@ -158,6 +258,22 @@ async fn create_ai_chat_webview(
         guard.insert(label, wv);
     }
 
+    Ok(())
+}
+
+/// Re-run the auto-fill script in an ALREADY-EXISTING child webview — used when
+/// the user selects new text and re-opens the same AI service ("全部打开"
+/// clicked again). The webview is NOT recreated (that would lose the current
+/// conversation), so the prompt is injected via `eval` instead.
+#[tauri::command]
+async fn fill_ai_chat_webview(
+    state: State<'_, AiChatWebview>,
+    label: String,
+    prompt: String,
+) -> Result<(), String> {
+    if let Some(wv) = state.0.lock().unwrap().get(&label).cloned() {
+        wv.eval(&autofill_script(&prompt)).map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
@@ -291,6 +407,9 @@ async fn create_ai_chat_window(
     bounds: Bounds,
     overlay: Option<PaperOverlay>,
     scale: f64,
+    /// Selected text to auto-fill into the chat input box (same semantics as
+    /// `create_ai_chat_webview`'s `prompt`).
+    prompt: Option<String>,
 ) -> Result<(), String> {
     let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
     let url: url::Url = url.parse().map_err(|e| format!("invalid url: {e}"))?;
@@ -307,6 +426,9 @@ async fn create_ai_chat_window(
         entry.win.set_focus().map_err(|e| e.to_string())?;
         entry.win.navigate(url).map_err(|e| e.to_string())?;
         entry.win.set_zoom(scale).map_err(|e| e.to_string())?;
+        if let Some(p) = &prompt {
+            let _ = entry.win.eval(&autofill_script(p));
+        }
         return Ok(());
     }
 
@@ -329,6 +451,9 @@ async fn create_ai_chat_window(
     if let Some(overlay) = &overlay {
         builder = builder.initialization_script(paper_overlay_script(overlay));
     }
+    if let Some(p) = &prompt {
+        builder = builder.initialization_script(autofill_script(p));
+    }
 
     let win = builder.build().map_err(|e| e.to_string())?;
     // Per-panel zoom: the floating window's webview gets its own scale so the
@@ -343,6 +468,20 @@ async fn create_ai_chat_window(
             minimized: std::sync::atomic::AtomicBool::new(false),
         },
     );
+    Ok(())
+}
+
+/// Re-run the auto-fill script in an ALREADY-EXISTING standalone floating chat
+/// window — the floating-mode counterpart of `fill_ai_chat_webview`.
+#[tauri::command]
+async fn fill_ai_chat_window(
+    state: State<'_, AiChatWindow>,
+    label: String,
+    prompt: String,
+) -> Result<(), String> {
+    if let Some(entry) = state.0.lock().unwrap().get(&label) {
+        entry.win.eval(&autofill_script(&prompt)).map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
@@ -701,11 +840,13 @@ pub fn run() {
             hide_ai_chat_webview,
             show_ai_chat_webview,
             set_ai_chat_webview_zoom,
+            fill_ai_chat_webview,
             create_ai_chat_window,
             close_ai_chat_window,
             hide_ai_chat_window,
             show_ai_chat_window,
             set_ai_chat_window_zoom,
+            fill_ai_chat_window,
             get_window_insets,
         ])
         .run(tauri::generate_context!())

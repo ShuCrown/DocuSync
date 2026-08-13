@@ -501,9 +501,9 @@ export default function App() {
         const collapsedPanels = panels.filter((p) => p.mode === 'collapsed')
 
         // Opening a chat should always show it — expand a collapsed sidebar first.
-        const handleOpenChat = (url: string, title: string) => {
+        const handleOpenChat = (url: string, title: string, prompt?: string) => {
           setChatCollapsed(false)
-          openChat(url, title)
+          openChat(url, title, prompt)
         }
 
         // Dock layout: every split panel is visible at once, arranged either

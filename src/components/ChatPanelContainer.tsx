@@ -3,7 +3,7 @@ import { useChatPanel, type ChatPanelState } from '../hooks/useChatPanel'
 
 interface ChatPanelContainerProps {
   children: (
-    openChat: (url: string, title: string) => void,
+    openChat: (url: string, title: string, prompt?: string) => void,
     panels: ChatPanelState[],
     resizeDock: (topId: string, bottomId: string, topRatio: number) => void,
     swapDockPanels: (idA: string, idB: string) => void,

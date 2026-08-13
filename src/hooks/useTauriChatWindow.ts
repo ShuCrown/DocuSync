@@ -142,6 +142,12 @@ export function useTauriChatWindow(panel: ChatPanelState): FloatingWindowControl
   useEffect(() => {
     uiZoomRef.current = uiZoom
   }, [uiZoom])
+  // Latest prompt — read at window-creation time; prompt CHANGES on an already
+  // existing window are handled by the separate fill effect below.
+  const promptRef = useRef(panel.pendingPrompt)
+  useEffect(() => {
+    promptRef.current = panel.pendingPrompt
+  }, [panel.pendingPrompt])
 
   const minimize = useCallback(() => {
     if (!isTauri()) return
@@ -175,6 +181,7 @@ export function useTauriChatWindow(panel: ChatPanelState): FloatingWindowControl
             bounds,
             overlay: getPaperOverlay(),
             scale: uiZoomRef.current * zoomRef.current,
+            prompt: promptRef.current || null,
           })
         })
         .then(() => {
@@ -202,6 +209,18 @@ export function useTauriChatWindow(panel: ChatPanelState): FloatingWindowControl
     if (!isTauri()) return
     invoke('set_ai_chat_window_zoom', { label, scale: uiZoom * panel.zoom }).catch(() => {})
   }, [label, uiZoom, panel.zoom])
+
+  // Prompt changed on an ALREADY-EXISTING floating window (user re-opened the
+  // same service with new text). The window is NOT recreated (that would lose
+  // the conversation), so the prompt is re-applied via `eval`. On first
+  // creation the prompt is passed to `create_ai_chat_window` directly; a
+  // redundant fill here is harmless (the script overwrites with the same text).
+  useEffect(() => {
+    if (!isTauri()) return
+    if (panel.mode !== 'floating') return
+    if (!panel.pendingPrompt) return
+    invoke('fill_ai_chat_window', { label, prompt: panel.pendingPrompt }).catch(() => {})
+  }, [label, panel.mode, panel.pendingPrompt])
 
   // Persist native move/resize, translate user-initiated close into
   // `panel.close()`, and mirror the native minimize state. Registered once for
