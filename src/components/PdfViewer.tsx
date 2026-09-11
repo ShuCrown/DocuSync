@@ -18,8 +18,13 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
   const latestOnTextExtractedRef = useRef(onTextExtracted)
   const [pdf, setPdf] = useState<pdfjsLib.PDFDocumentProxy | null>(null)
   const [totalPages, setTotalPages] = useState(0)
-  const [scale, setScale] = useState(1.5)
+  /** User zoom relative to fit-width (1 = page fills the pane width) */
+  const [userZoom, setUserZoom] = useState(1)
   const [currentPage, setCurrentPage] = useState(1)
+  /** Pane width for fit-to-width scaling. Measured with offsetWidth, which is
+   *  stable regardless of a vertical scrollbar being visible (contentRect
+   *  would oscillate when the scrollbar appears/disappears). */
+  const [paneWidth, setPaneWidth] = useState(0)
   /** Page sizes at scale 1 — unrendered placeholders keep the document's real
    *  height so the scrollbar stays accurate with lazy rendering. */
   const [baseSizes, setBaseSizes] = useState<Map<number, { w: number; h: number }>>(new Map())
@@ -31,6 +36,18 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
   useEffect(() => {
     latestOnTextExtractedRef.current = onTextExtracted
   }, [onTextExtracted])
+
+  // Track the scroller's width so pages fit the pane (split view resizes it
+  // live). offsetWidth keeps the measurement scrollbar-independent.
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const ro = new ResizeObserver((entries) => {
+      for (const e of entries) setPaneWidth((e.target as HTMLElement).offsetWidth)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   // Load PDF
   useEffect(() => {
@@ -88,12 +105,32 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
     return () => { cancelled = true }
   }, [pdf])
 
-  // Render a single page into its container (no-op if already at current scale)
+  // Fit-to-width: effective scale = pane fit × user zoom. Capped at 2 so
+  // small pages aren't blown up beyond readability on very wide panes.
+  // 24px margin covers the vertical scrollbar + page shadow, so the page
+  // never triggers a horizontal scrollbar at 100% zoom.
+  const maxBaseW = baseSizes.size > 0
+    ? Math.max(...Array.from(baseSizes.values(), (s) => s.w))
+    : 0
+  const fitScale = paneWidth > 0 && maxBaseW > 0 ? Math.min((paneWidth - 24) / maxBaseW, 2) : 0
+  const scale = fitScale > 0 ? fitScale * userZoom : 0
+
+  // Debounced mirror of `scale`, used ONLY for canvas rasterization. Split
+  // drags change `scale` every frame — re-rasterizing on each is the jank.
+  // Placeholders keep the live `scale` (smooth CSS sizing) while canvases
+  // re-render once, after the drag settles.
+  const [renderScale, setRenderScale] = useState(0)
+  useEffect(() => {
+    const t = setTimeout(() => setRenderScale(scale), 150)
+    return () => clearTimeout(t)
+  }, [scale])
+
+  // Render a single page into its container (no-op if already at renderScale)
   const renderPage = useCallback(async (num: number) => {
-    if (!pdf) return
+    if (!pdf || renderScale <= 0) return
     const container = pageRefs.current.get(num)
     if (!container) return
-    if (renderedScale.current.get(num) === scale) return
+    if (renderedScale.current.get(num) === renderScale) return
 
     // Cancel any existing render task for this page
     const existing = renderTasks.current.get(num)
@@ -106,14 +143,17 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
     container.innerHTML = ''
 
     const page = await pdf.getPage(num)
-    const viewport = page.getViewport({ scale })
+    // Backing store at device resolution (crisp on HiDPI); CSS size tracks
+    // the placeholder, so a stale canvas stretches smoothly until re-render.
+    const dpr = window.devicePixelRatio || 1
+    const viewport = page.getViewport({ scale: renderScale * dpr })
 
     const canvas = document.createElement('canvas')
     canvas.width = viewport.width
     canvas.height = viewport.height
-    canvas.style.width = `${viewport.width}px`
-    canvas.style.height = `${viewport.height}px`
-    canvas.className = 'mx-auto'
+    canvas.style.width = '100%'
+    canvas.style.height = '100%'
+    canvas.style.display = 'block'
     container.appendChild(canvas)
 
     const ctx = canvas.getContext('2d')!
@@ -126,14 +166,15 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
       // Render was cancelled
     } finally {
       renderTasks.current.delete(num)
-      renderedScale.current.set(num, scale)
+      renderedScale.current.set(num, renderScale)
     }
-  }, [pdf, scale])
+  }, [pdf, renderScale])
 
   // Lazy render: only pages in/near the viewport get a canvas. Re-created when
-  // scale changes (renderPage identity changes), and re-observing fires initial
-  // intersection callbacks so visible pages re-render at the new scale. Pages
-  // scrolled far away drop their canvas to free memory and re-render on return.
+  // renderScale changes (renderPage identity changes), and re-observing fires
+  // initial intersection callbacks so visible pages re-render at the new scale.
+  // Pages scrolled far away drop their canvas to free memory and re-render on
+  // return. Split drags don't churn this observer — renderScale is debounced.
   useEffect(() => {
     if (!containerRef.current || totalPages === 0) return
 
@@ -191,17 +232,28 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
     return () => observer.disconnect()
   }, [totalPages])
 
-  const zoomIn = () => setScale((s) => Math.min(3, s + 0.25))
-  const zoomOut = () => setScale((s) => Math.max(0.5, s - 0.25))
+  const zoomIn = () => setUserZoom((z) => Math.min(4, z + 0.25))
+  const zoomOut = () => setUserZoom((z) => Math.max(0.5, z - 0.25))
 
   return (
-    <div className="flex flex-col flex-1">
+    // min-h-0: without it the flex item's automatic min-height (content size)
+    // forces this wrapper — and the scroller inside — to full document height
+    // wherever the viewer stands alone (share preview), killing vertical
+    // scrolling. Inside the app's zoom layer the CSS there forces the scroller
+    // to height:auto, so this is a no-op there.
+    <div className="flex flex-col flex-1 min-h-0">
       {/* Toolbar */}
       <div className="flex items-center justify-center gap-3 py-2 px-4 bg-surface-card border-b border-border shrink-0">
         <button onClick={zoomOut} className="p-1.5 hover:text-primary transition-colors text-text-secondary">
           <ZoomOut className="w-4 h-4" />
         </button>
-        <span className="text-sm text-text-secondary min-w-[48px] text-center tabular-nums">{Math.round(scale * 100)}%</span>
+        <span
+          onClick={() => setUserZoom(1)}
+          title="重置为适应宽度"
+          className="text-sm text-text-secondary min-w-[48px] text-center tabular-nums cursor-pointer hover:text-primary transition-colors"
+        >
+          {Math.round(userZoom * 100)}%
+        </span>
         <button onClick={zoomIn} className="p-1.5 hover:text-primary transition-colors text-text-secondary">
           <ZoomIn className="w-4 h-4" />
         </button>
@@ -227,8 +279,8 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
                 className="bg-white shadow-[0_2px_8px_rgba(0,0,0,0.15)]"
                 style={{
                   minHeight: '400px',
-                  width: base ? `${base.w * scale}px` : undefined,
-                  height: base ? `${base.h * scale}px` : undefined,
+                  width: base && scale > 0 ? `${base.w * scale}px` : undefined,
+                  height: base && scale > 0 ? `${base.h * scale}px` : undefined,
                 }}
               />
             )
