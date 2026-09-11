@@ -1,0 +1,5 @@
+name = "docusync-landing"
+compatibility_date = "2024-09-23"
+
+# Cloudflare Pages 配置 —— 纯静态宣传页，无 Functions / 绑定
+pages_build_output_dir = "./dist"
