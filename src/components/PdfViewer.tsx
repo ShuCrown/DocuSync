@@ -20,8 +20,13 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
   const [totalPages, setTotalPages] = useState(0)
   const [scale, setScale] = useState(1.5)
   const [currentPage, setCurrentPage] = useState(1)
+  /** Page sizes at scale 1 — unrendered placeholders keep the document's real
+   *  height so the scrollbar stays accurate with lazy rendering. */
+  const [baseSizes, setBaseSizes] = useState<Map<number, { w: number; h: number }>>(new Map())
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map())
   const renderTasks = useRef<Map<number, pdfjsLib.RenderTask>>(new Map())
+  /** Scale each page was last rendered at — a mismatch means re-render needed. */
+  const renderedScale = useRef<Map<number, number>>(new Map())
 
   useEffect(() => {
     latestOnTextExtractedRef.current = onTextExtracted
@@ -64,11 +69,31 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
     return () => { cancelled = true }
   }, [pdf])
 
-  // Render a single page into its container
+  // Pre-measure page sizes (scale 1) so lazy rendering keeps an accurate
+  // scrollbar before pages are actually rendered.
+  useEffect(() => {
+    if (!pdf) return
+    let cancelled = false
+    const measure = async () => {
+      const sizes = new Map<number, { w: number; h: number }>()
+      for (let i = 1; i <= pdf.numPages; i++) {
+        if (cancelled) return
+        const page = await pdf.getPage(i)
+        const vp = page.getViewport({ scale: 1 })
+        sizes.set(i, { w: vp.width, h: vp.height })
+      }
+      if (!cancelled) setBaseSizes(sizes)
+    }
+    measure()
+    return () => { cancelled = true }
+  }, [pdf])
+
+  // Render a single page into its container (no-op if already at current scale)
   const renderPage = useCallback(async (num: number) => {
     if (!pdf) return
     const container = pageRefs.current.get(num)
     if (!container) return
+    if (renderedScale.current.get(num) === scale) return
 
     // Cancel any existing render task for this page
     const existing = renderTasks.current.get(num)
@@ -101,16 +126,46 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
       // Render was cancelled
     } finally {
       renderTasks.current.delete(num)
+      renderedScale.current.set(num, scale)
     }
   }, [pdf, scale])
 
-  // Re-render all pages when scale changes
+  // Lazy render: only pages in/near the viewport get a canvas. Re-created when
+  // scale changes (renderPage identity changes), and re-observing fires initial
+  // intersection callbacks so visible pages re-render at the new scale. Pages
+  // scrolled far away drop their canvas to free memory and re-render on return.
   useEffect(() => {
-    if (!pdf) return
-    for (let i = 1; i <= pdf.numPages; i++) {
-      renderPage(i)
-    }
-  }, [pdf, scale, renderPage])
+    if (!containerRef.current || totalPages === 0) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const pageNum = Number(entry.target.getAttribute('data-page'))
+          if (!pageNum) continue
+          if (entry.isIntersecting) {
+            renderPage(pageNum)
+          } else {
+            const container = pageRefs.current.get(pageNum)
+            if (container && renderedScale.current.has(pageNum)) {
+              const task = renderTasks.current.get(pageNum)
+              task?.cancel()
+              renderTasks.current.delete(pageNum)
+              container.innerHTML = ''
+              renderedScale.current.delete(pageNum)
+            }
+          }
+        }
+      },
+      {
+        root: containerRef.current,
+        rootMargin: '1000px 0px 1000px 0px',
+        threshold: 0,
+      }
+    )
+
+    pageRefs.current.forEach((el) => observer.observe(el))
+    return () => observer.disconnect()
+  }, [totalPages, renderPage])
 
   // Track current page via IntersectionObserver
   useEffect(() => {
@@ -162,15 +217,22 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
         className="pdf-scroller flex-1 overflow-auto bg-[#525659]"
       >
         <div className="flex flex-col items-center py-4 gap-2">
-          {Array.from({ length: totalPages }, (_, i) => i + 1).map((num) => (
-            <div
-              key={num}
-              data-page={num}
-              ref={(el) => { if (el) pageRefs.current.set(num, el) }}
-              className="bg-white shadow-[0_2px_8px_rgba(0,0,0,0.15)]"
-              style={{ minHeight: '400px' }}
-            />
-          ))}
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map((num) => {
+            const base = baseSizes.get(num)
+            return (
+              <div
+                key={num}
+                data-page={num}
+                ref={(el) => { if (el) pageRefs.current.set(num, el) }}
+                className="bg-white shadow-[0_2px_8px_rgba(0,0,0,0.15)]"
+                style={{
+                  minHeight: '400px',
+                  width: base ? `${base.w * scale}px` : undefined,
+                  height: base ? `${base.h * scale}px` : undefined,
+                }}
+              />
+            )
+          })}
         </div>
       </div>
     </div>

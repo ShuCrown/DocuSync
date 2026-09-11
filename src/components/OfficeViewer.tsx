@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { renderAsync } from 'docx-preview'
-import * as mammoth from 'mammoth'
 import * as XLSX from 'xlsx'
-import DOMPurify from 'dompurify'
+import JSZip from 'jszip'
 import { Loader2 } from 'lucide-react'
 import { ImagePreviewModal } from './ImagePreviewModal'
 
@@ -15,6 +14,46 @@ interface OfficeViewerProps {
 
 /** Cache for extracted text (used by AI summary) */
 const textCache = new Map<string, string>()
+
+/** OLE2 compound file magic — legacy binary Office formats (.doc/.ppt) */
+function isLegacyOfficeBinary(buffer: ArrayBuffer): boolean {
+  const sig = new Uint8Array(buffer.slice(0, 4))
+  return sig[0] === 0xd0 && sig[1] === 0xcf && sig[2] === 0x11 && sig[3] === 0xe0
+}
+
+const LEGACY_HINT = '暂不支持旧版二进制格式，请先用 Word/PowerPoint 另存为 .docx/.pptx 后再上传'
+
+/**
+ * Extract per-slide text from a .pptx (OOXML) with JSZip: slides live at
+ * ppt/slides/slide{N}.xml; each paragraph (<a:p>) joins its text runs (<a:t>).
+ */
+async function extractPptxSlides(buffer: ArrayBuffer): Promise<string[][]> {
+  const zip = await JSZip.loadAsync(buffer)
+  const slidePaths: { num: number; path: string }[] = []
+  zip.forEach((path) => {
+    const m = /^ppt\/slides\/slide(\d+)\.xml$/.exec(path)
+    if (m) slidePaths.push({ num: Number(m[1]), path })
+  })
+  slidePaths.sort((a, b) => a.num - b.num)
+
+  const decodeXml = (s: string) => s
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&')
+
+  const slides: string[][] = []
+  for (const { path } of slidePaths) {
+    const xml = await zip.file(path)!.async('string')
+    const paragraphs = xml
+      .split('</a:p>')
+      .map((p) => decodeXml([...p.matchAll(/<a:t>([^<]*)<\/a:t>/g)].map((m) => m[1]).join('')))
+      .filter((t) => t.length > 0)
+    slides.push(paragraphs)
+  }
+  return slides
+}
 
 /**
  * Enable click-to-preview on every image docx-preview rendered:
@@ -132,8 +171,9 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
   const [tableData, setTableData] = useState<string[][][]>([])
   const [sheetNames, setSheetNames] = useState<string[]>([])
   const [sheetMerges, setSheetMerges] = useState<{ s: { r: number; c: number }; e: { r: number; c: number } }[][]>([])
+  const [sheetCols, setSheetCols] = useState<XLSX.ColInfo[][]>([])
   const [activeSheet, setActiveSheet] = useState(0)
-  const [pptHtml, setPptHtml] = useState<string>('')
+  const [pptSlides, setPptSlides] = useState<string[][]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [previewSrc, setPreviewSrc] = useState<string | null>(null)
@@ -147,7 +187,7 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
     latestOnTextExtractedRef.current = onTextExtracted
   }, [onTextExtracted])
 
-  // Word: render with docx-preview, extract text with mammoth
+  // Word: render with docx-preview, extract text from the rendered DOM
   useEffect(() => {
     if (category !== 'word') return
     const el = containerRef.current
@@ -161,6 +201,9 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
       setError(null)
       try {
         const buffer = await file.arrayBuffer()
+        if (isLegacyOfficeBinary(buffer)) {
+          throw new Error(`.doc 旧版格式无法解析。${LEGACY_HINT}`)
+        }
         const blob = new Blob([buffer], {
           type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         })
@@ -195,11 +238,12 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
           })
         })
 
-        // Extract text for AI summary (reuse cached if available)
+        // Extract text for AI summary (reuse cached if available).
+        // docx-preview has already rendered the full document DOM, so reuse
+        // it instead of re-parsing the whole file with mammoth.
         let extractedText = textCache.get(documentKey)
         if (extractedText === undefined) {
-          const textResult = await mammoth.extractRawText({ arrayBuffer: buffer })
-          extractedText = textResult.value
+          extractedText = el.innerText
           textCache.set(documentKey, extractedText)
         }
 
@@ -239,10 +283,11 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
         const buffer = await file.arrayBuffer()
 
         if (category === 'excel') {
-          const workbook = XLSX.read(buffer, { type: 'array' })
+          const workbook = XLSX.read(buffer, { type: 'array', cellStyles: true })
           const names = workbook.SheetNames
           const sheets: string[][][] = []
           const merges: { s: { r: number; c: number }; e: { r: number; c: number } }[][] = []
+          const cols: XLSX.ColInfo[][] = []
           const texts: string[] = []
           for (const name of names) {
             const sheet = workbook.Sheets[name]
@@ -251,6 +296,8 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
               sheets.push(data as string[][])
               // Preserve merge ranges for proper rowspan/colspan rendering
               merges.push((sheet['!merges'] as { s: { r: number; c: number }; e: { r: number; c: number } }[]) ?? [])
+              // Preserve column widths (wpx px / wch char units) for faithful layout
+              cols.push(sheet['!cols'] ?? [])
               texts.push(`[${name}]\n${XLSX.utils.sheet_to_csv(sheet)}`)
             }
           }
@@ -259,14 +306,21 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
             setSheetNames(names)
             setTableData(sheets)
             setSheetMerges(merges)
+            setSheetCols(cols)
             setActiveSheet(0)
             textCache.set(documentKey, extractedText)
             latestOnTextExtractedRef.current?.(extractedText)
           }
         } else if (category === 'powerpoint') {
-          const extractedText = 'PowerPoint 文件内容（需要服务端解析以获取完整文本）'
+          if (isLegacyOfficeBinary(buffer)) {
+            throw new Error(`.ppt 旧版格式无法解析。${LEGACY_HINT}`)
+          }
+          const slides = await extractPptxSlides(buffer)
+          const extractedText = slides
+            .map((paras, i) => `[幻灯片 ${i + 1}]\n${paras.join('\n')}`)
+            .join('\n\n')
           if (!cancelled) {
-            setPptHtml('<p class="text-text-secondary">PPT 预览暂以文本内容展示</p>')
+            setPptSlides(slides)
             setSheetNames([])
             setTableData([])
             textCache.set(documentKey, extractedText)
@@ -329,18 +383,29 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
 
   if (category === 'powerpoint') {
     return (
-      <div
-        className="office-doc p-8 bg-surface-card overflow-y-auto overflow-x-hidden flex-1"
-        dangerouslySetInnerHTML={{
-          __html: DOMPurify.sanitize(pptHtml, { ADD_ATTR: ['class', 'style'] }),
-        }}
-      />
+      <div className="office-doc p-8 bg-surface-card overflow-y-auto overflow-x-hidden flex-1">
+        {pptSlides.length === 0 ? (
+          <p className="text-center text-text-secondary">未提取到幻灯片文本内容</p>
+        ) : (
+          <div className="max-w-3xl mx-auto flex flex-col gap-4">
+            {pptSlides.map((paras, i) => (
+              <div key={i} className="border border-border rounded-lg p-6 shadow-sm bg-white">
+                <div className="text-xs text-text-secondary mb-3">幻灯片 {i + 1}</div>
+                {paras.map((p, j) => (
+                  <p key={j} className="text-sm text-text mb-1.5 whitespace-pre-wrap">{p}</p>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     )
   }
 
   // Excel: render active sheet with merge-aware rowspan/colspan + bottom tab bar
   const activeData = tableData[activeSheet] ?? []
   const activeMerges = sheetMerges[activeSheet] ?? []
+  const activeCols = sheetCols[activeSheet] ?? []
 
   // Build skip-set and merge-info for the active sheet
   const skipCell = new Set<string>()
@@ -365,6 +430,13 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
       <div className="flex-1 overflow-auto p-4 pb-1">
         <div className="overflow-x-auto min-h-full bg-white shadow-[0_1px_4px_rgba(0,0,0,0.08)]">
           <table className="w-full text-sm border-collapse">
+            <colgroup>
+              {activeCols.map((col, i) => {
+                // wpx = pixels; wch = character units (~7.5px each + padding)
+                const wpx = col?.wpx ?? (col?.wch != null ? Math.round(col.wch * 7.5 + 5) : undefined)
+                return wpx ? <col key={i} style={{ width: `${wpx}px` }} /> : <col key={i} />
+              })}
+            </colgroup>
             <tbody>
               {activeData.map((row, rowIdx) => (
                 <tr key={rowIdx} className={rowIdx === 0 ? 'bg-surface-alt font-medium' : ''}>
