@@ -13,10 +13,7 @@ interface LayoutProps {
   email?: string | null
   onAccountOpen?: () => void
   onSettingsOpen?: () => void
-  // Chat panel split width — shrinks the main panel to make room
-  chatSplitWidth?: number
-  // Browser-like zoom of the DOCUMENT area only (chat panels zoom via their
-  // own per-panel controls).
+  // Browser-like zoom of the DOCUMENT area only.
   docZoom?: number
   onDocZoomIn?: () => void
   onDocZoomOut?: () => void
@@ -30,7 +27,6 @@ export function Layout({
   email,
   onAccountOpen,
   onSettingsOpen,
-  chatSplitWidth,
   docZoom = 1,
   onDocZoomIn,
   onDocZoomOut,
@@ -52,10 +48,7 @@ export function Layout({
   }, [zoomOpen])
 
   return (
-    <div
-      className="h-full bg-surface flex flex-col overflow-hidden p-1.5"
-      style={chatSplitWidth ? { paddingRight: chatSplitWidth } : undefined}
-    >
+    <div className="h-full bg-surface flex flex-col overflow-hidden p-1.5">
       {/* Unified floating panel: header + content */}
       <div className="flex-1 flex flex-col min-h-0 rounded-xl overflow-hidden border border-border/60 shadow-[0_2px_16px_rgba(0,0,0,0.06)] bg-surface-card">
 

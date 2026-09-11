@@ -458,7 +458,7 @@ body {
   vertical-align: middle;
 }
 
-/* Copied-selection toast entrance (SelectionToolbar) */
+/* Toast entrance (App notice, settings feedback) */
 @keyframes docusync-toast-in {
   from {
     opacity: 0;

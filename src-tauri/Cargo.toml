@@ -1,7 +1,7 @@
 [package]
 name = "docusync-tauri"
 version = "0.0.33"
-description = "DocuSync with DeepSeek Chat"
+description = "DocuSync"
 authors = ["you"]
 edition = "2021"
 
@@ -14,7 +14,6 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["unstable"] }
-url = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
@@ -26,9 +25,3 @@ tauri-plugin-global-shortcut = "2"
 
 [features]
 devtools = ["tauri/devtools"]
-
-# macOS-only native bindings (used by `platform::macos` to read the real
-# titlebar safe-area via NSWindow.contentLayoutRect).
-[target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "0.6"
-objc2-foundation = "0.3"
