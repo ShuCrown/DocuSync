@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import { ZoomIn, ZoomOut } from 'lucide-react'
 
@@ -21,10 +21,6 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
   /** User zoom relative to fit-width (1 = page fills the pane width) */
   const [userZoom, setUserZoom] = useState(1)
   const [currentPage, setCurrentPage] = useState(1)
-  /** Pane width for fit-to-width scaling. Measured with offsetWidth, which is
-   *  stable regardless of a vertical scrollbar being visible (contentRect
-   *  would oscillate when the scrollbar appears/disappears). */
-  const [paneWidth, setPaneWidth] = useState(0)
   /** Page sizes at scale 1 — unrendered placeholders keep the document's real
    *  height so the scrollbar stays accurate with lazy rendering. */
   const [baseSizes, setBaseSizes] = useState<Map<number, { w: number; h: number }>>(new Map())
@@ -32,22 +28,20 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
   const renderTasks = useRef<Map<number, pdfjsLib.RenderTask>>(new Map())
   /** Scale each page was last rendered at — a mismatch means re-render needed. */
   const renderedScale = useRef<Map<number, number>>(new Map())
+  const baseSizesRef = useRef(baseSizes)
+  baseSizesRef.current = baseSizes
+  /** Live target scale (fit × zoom). Kept in a ref — split drags update it
+   *  every frame via direct DOM writes, NOT React state, so the page list is
+   *  never reconciled during a drag. */
+  const targetScaleRef = useRef(0)
+  const rerasterTimer = useRef<number | null>(null)
+  /** Raster scale = debounced live scale. Canvases re-rasterize once, ~150ms
+   *  after the drag settles; meanwhile the existing canvas CSS-stretches. */
+  const [renderScale, setRenderScale] = useState(0)
 
   useEffect(() => {
     latestOnTextExtractedRef.current = onTextExtracted
   }, [onTextExtracted])
-
-  // Track the scroller's width so pages fit the pane (split view resizes it
-  // live). offsetWidth keeps the measurement scrollbar-independent.
-  useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
-    const ro = new ResizeObserver((entries) => {
-      for (const e of entries) setPaneWidth((e.target as HTMLElement).offsetWidth)
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
 
   // Load PDF
   useEffect(() => {
@@ -59,32 +53,12 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
       setPdf(doc)
       setTotalPages(doc.numPages)
       setCurrentPage(1)
+      // New document: reset per-page render bookkeeping
+      renderedScale.current.clear()
     }
     load()
     return () => { cancelled = true }
   }, [url])
-
-  // Extract text for summary
-  useEffect(() => {
-    if (!pdf || !latestOnTextExtractedRef.current) return
-    let cancelled = false
-    const extract = async () => {
-      const texts: string[] = []
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i)
-        const content = await page.getTextContent()
-        const pageText = content.items
-          .map((item) => ('str' in item ? item.str : ''))
-          .join(' ')
-        texts.push(pageText)
-      }
-      if (!cancelled) {
-        latestOnTextExtractedRef.current?.(texts.join('\n\n'))
-      }
-    }
-    extract()
-    return () => { cancelled = true }
-  }, [pdf])
 
   // Pre-measure page sizes (scale 1) so lazy rendering keeps an accurate
   // scrollbar before pages are actually rendered.
@@ -105,25 +79,96 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
     return () => { cancelled = true }
   }, [pdf])
 
-  // Fit-to-width: effective scale = pane fit × user zoom. Capped at 2 so
-  // small pages aren't blown up beyond readability on very wide panes.
-  // 24px margin covers the vertical scrollbar + page shadow, so the page
-  // never triggers a horizontal scrollbar at 100% zoom.
-  const maxBaseW = baseSizes.size > 0
-    ? Math.max(...Array.from(baseSizes.values(), (s) => s.w))
-    : 0
-  const fitScale = paneWidth > 0 && maxBaseW > 0 ? Math.min((paneWidth - 24) / maxBaseW, 2) : 0
-  const scale = fitScale > 0 ? fitScale * userZoom : 0
+  /** Fit scale for the current pane width. Capped at 2 so small pages aren't
+   *  blown up beyond readability on very wide panes. 24px margin covers the
+   *  vertical scrollbar + page shadow, so the page never triggers a
+   *  horizontal scrollbar at 100% zoom. offsetWidth is scrollbar-stable. */
+  const computeFitScale = useCallback(() => {
+    const sizes = baseSizesRef.current
+    if (sizes.size === 0) return 0
+    const paneW = containerRef.current?.offsetWidth ?? 0
+    if (paneW <= 0) return 0
+    let maxW = 0
+    sizes.forEach((s) => { if (s.w > maxW) maxW = s.w })
+    return Math.min((paneW - 24) / maxW, 2)
+  }, [])
 
-  // Debounced mirror of `scale`, used ONLY for canvas rasterization. Split
-  // drags change `scale` every frame — re-rasterizing on each is the jank.
-  // Placeholders keep the live `scale` (smooth CSS sizing) while canvases
-  // re-render once, after the drag settles.
-  const [renderScale, setRenderScale] = useState(0)
+  /** Write live sizes straight to the placeholder divs (no React round-trip):
+   *  a split drag fires ResizeObserver every frame — routing that through
+   *  state would reconcile the whole page list per frame and stall. */
+  const applyLiveSizes = useCallback((zoom: number) => {
+    const fit = computeFitScale()
+    if (fit <= 0) return
+    const scale = fit * zoom
+    targetScaleRef.current = scale
+    const sizes = baseSizesRef.current
+    pageRefs.current.forEach((el, num) => {
+      const base = sizes.get(num)
+      if (!base) return
+      el.style.width = `${base.w * scale}px`
+      el.style.height = `${base.h * scale}px`
+    })
+  }, [computeFitScale])
+
+  /** Re-raster visible pages once, after the drag/zoom settles. */
+  const scheduleReraster = useCallback((scale: number) => {
+    if (scale <= 0) return
+    if (rerasterTimer.current != null) window.clearTimeout(rerasterTimer.current)
+    rerasterTimer.current = window.setTimeout(() => {
+      rerasterTimer.current = null
+      setRenderScale(scale)
+    }, 150)
+  }, [])
+
+  useEffect(() => () => {
+    if (rerasterTimer.current != null) window.clearTimeout(rerasterTimer.current)
+  }, [])
+
+  // Track the pane width so pages fit it (split view resizes it live).
   useEffect(() => {
-    const t = setTimeout(() => setRenderScale(scale), 150)
-    return () => clearTimeout(t)
-  }, [scale])
+    const el = containerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      applyLiveSizes(userZoom)
+      scheduleReraster(targetScaleRef.current)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [applyLiveSizes, scheduleReraster, userZoom])
+
+  // Apply sizes when measurement completes or the user zooms (buttons).
+  useEffect(() => {
+    if (baseSizes.size === 0) return
+    applyLiveSizes(userZoom)
+    scheduleReraster(targetScaleRef.current)
+  }, [baseSizes, userZoom, applyLiveSizes, scheduleReraster])
+
+  // Extract text for summary. Delayed + batched: the pdf.js worker is
+  // single-threaded, so queuing numPages text requests upfront would starve
+  // render tasks (initial paint AND resize re-rasters). Wait for first paint,
+  // then yield every few pages so renders interleave.
+  useEffect(() => {
+    if (!pdf || !latestOnTextExtractedRef.current) return
+    let cancelled = false
+    const extract = async () => {
+      const texts: string[] = []
+      for (let i = 1; i <= pdf.numPages; i++) {
+        if (cancelled) return
+        const page = await pdf.getPage(i)
+        const content = await page.getTextContent()
+        const pageText = content.items
+          .map((item) => ('str' in item ? item.str : ''))
+          .join(' ')
+        texts.push(pageText)
+        if (i % 8 === 0) await new Promise((r) => setTimeout(r, 60))
+      }
+      if (!cancelled) {
+        latestOnTextExtractedRef.current?.(texts.join('\n\n'))
+      }
+    }
+    const timer = window.setTimeout(extract, 800)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [pdf])
 
   // Render a single page into its container (no-op if already at renderScale)
   const renderPage = useCallback(async (num: number) => {
@@ -144,7 +189,8 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
 
     const page = await pdf.getPage(num)
     // Backing store at device resolution (crisp on HiDPI); CSS size tracks
-    // the placeholder, so a stale canvas stretches smoothly until re-render.
+    // the live placeholder size, so a stale canvas stretches smoothly until
+    // the debounced re-raster catches up.
     const dpr = window.devicePixelRatio || 1
     const viewport = page.getViewport({ scale: renderScale * dpr })
 
@@ -162,11 +208,13 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
 
     try {
       await task.promise
+      // Mark rendered ONLY on success — a cancelled task must not fake a
+      // completed render (the next observer pass would skip re-rendering).
+      renderedScale.current.set(num, renderScale)
     } catch {
       // Render was cancelled
     } finally {
       renderTasks.current.delete(num)
-      renderedScale.current.set(num, renderScale)
     }
   }, [pdf, renderScale])
 
@@ -232,6 +280,20 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
     return () => observer.disconnect()
   }, [totalPages])
 
+  // Static page list: memoized so currentPage updates during scrolling (and
+  // any state change) skip reconciling hundreds of placeholder divs.
+  const pageList = useMemo(() => (
+    Array.from({ length: totalPages }, (_, i) => i + 1).map((num) => (
+      <div
+        key={num}
+        data-page={num}
+        ref={(el) => { if (el) pageRefs.current.set(num, el) }}
+        className="bg-white shadow-[0_2px_8px_rgba(0,0,0,0.15)]"
+        style={{ minHeight: '400px' }}
+      />
+    ))
+  ), [totalPages])
+
   const zoomIn = () => setUserZoom((z) => Math.min(4, z + 0.25))
   const zoomOut = () => setUserZoom((z) => Math.max(0.5, z - 0.25))
 
@@ -269,22 +331,7 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
         className="pdf-scroller flex-1 overflow-auto bg-[#525659]"
       >
         <div className="flex flex-col items-center py-4 gap-2">
-          {Array.from({ length: totalPages }, (_, i) => i + 1).map((num) => {
-            const base = baseSizes.get(num)
-            return (
-              <div
-                key={num}
-                data-page={num}
-                ref={(el) => { if (el) pageRefs.current.set(num, el) }}
-                className="bg-white shadow-[0_2px_8px_rgba(0,0,0,0.15)]"
-                style={{
-                  minHeight: '400px',
-                  width: base && scale > 0 ? `${base.w * scale}px` : undefined,
-                  height: base && scale > 0 ? `${base.h * scale}px` : undefined,
-                }}
-              />
-            )
-          })}
+          {pageList}
         </div>
       </div>
     </div>
