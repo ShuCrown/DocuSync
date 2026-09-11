@@ -115,7 +115,10 @@ jobs:
 
       # tauri.conf.json 是唯一版本来源；构建时把版本同步到 Cargo.toml /
       # package.json（仅本次构建生效，不回写仓库），保证三处与发布版本一致。
+      # shell: bash is required — the Windows runner defaults to pwsh, where
+      # `VERSION="..."` style assignments are invalid.
       - name: Sync version files
+        shell: bash
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
           tmp=$(mktemp)
