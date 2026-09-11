@@ -1,9 +1,13 @@
 name: Tauri Desktop Build & Release
 
-# 每次 push 到 master（源码或构建配置变更）触发：
-#   1. 自动 patch 版本自增（0.0.1 -> 0.0.2 -> 0.0.3 ...）
-#   2. 双平台并行构建（Windows / macOS ARM64）
-#   3. 在 GitHub Releases 页面发布可下载资源
+# 版本号人控（单一来源）：
+#   `src-tauri/tauri.conf.json` 的 version 字段是唯一版本来源，想发版就手动改它并 push。
+#   master 源码变更会自动重建并刷新对应版本的 draft Release（AskAll 同款策略）：
+#     - 版本号没变      → 更新已有 draft 的产物与说明（--clobber）
+#     - 版本号变了      → 创建新 tag vX.Y.Z 与新的 draft
+#     - 该版本已正式发布 → 跳过，绝不覆盖已发布的版本
+#   草稿需在 GitHub 页面人工确认后发布；发布前 updater 端点
+#   （releases/latest/download/latest.json）不会被解析。
 on:
   push:
     branches:
@@ -23,78 +27,57 @@ on:
 permissions:
   contents: write
 
+# 同一分支同时只允许一个发布流程运行：后到的排队等待而不是取消。
+concurrency:
+  group: tauri-release-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   NODE_VERSION: "22"
 
 jobs:
-  bump-version:
-    name: Bump patch version
+  prepare:
+    name: Read version & changelog
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.bump.outputs.version }}
-      tag: ${{ steps.bump.outputs.tag }}
+      version: ${{ steps.read.outputs.version }}
+      tag: ${{ steps.read.outputs.tag }}
+      changes: ${{ steps.read.outputs.changes }}
     steps:
-      - uses: actions/checkout@v4
+      # fetch-depth: 0 拉取全部历史与 tag，用于生成自上一版本以来的提交记录
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-tags: true
 
-      - name: Read current version
+      - name: Read version & changelog
         id: read
         run: |
-          CURRENT=$(jq -r '.version' src-tauri/tauri.conf.json)
-          echo "Current version: $CURRENT"
-          echo "version=$CURRENT" >> "$GITHUB_OUTPUT"
+          version=$(jq -r '.version' src-tauri/tauri.conf.json)
+          tag="v$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-      - name: Bump patch version
-        id: bump
-        run: |
-          CURRENT="${{ steps.read.outputs.version }}"
-          MAJOR=$(echo "$CURRENT" | cut -d. -f1)
-          MINOR=$(echo "$CURRENT" | cut -d. -f2)
-          PATCH=$(echo "$CURRENT" | cut -d. -f3)
-          # 缺位补 0
-          MAJOR=${MAJOR:-0}
-          MINOR=${MINOR:-0}
-          PATCH=${PATCH:-0}
-          NEW_PATCH=$((PATCH + 1))
-          NEW_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
-          TAG="v$NEW_VERSION"
-          echo "New version: $NEW_VERSION, tag: $TAG"
-          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Update version files
-        run: |
-          NEW_VERSION="${{ steps.bump.outputs.version }}"
-          # tauri.conf.json
-          tmp=$(mktemp)
-          jq --arg v "$NEW_VERSION" '.version = $v' src-tauri/tauri.conf.json > "$tmp" && mv "$tmp" src-tauri/tauri.conf.json
-          # Cargo.toml（仅替换 [package] 段中的 version = "..."）
-          sed -i -E '0,/^version = "[0-9.]+"$/ s/^version = "[0-9.]+"$/version = "'"$NEW_VERSION"'"/' src-tauri/Cargo.toml
-          # package.json
-          tmp2=$(mktemp)
-          jq --arg v "$NEW_VERSION" '.version = $v' package.json > "$tmp2" && mv "$tmp2" package.json
-          echo "---- tauri.conf.json ----"
-          jq '.version' src-tauri/tauri.conf.json
-          echo "---- Cargo.toml ----"
-          grep '^version' src-tauri/Cargo.toml
-          echo "---- package.json ----"
-          jq '.version' package.json
-
-      - name: Commit, tag and push
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add src-tauri/tauri.conf.json src-tauri/Cargo.toml package.json
-          git commit -m "chore(release): bump version to ${{ steps.bump.outputs.version }} [skip ci]"
-          git tag "${{ steps.bump.outputs.tag }}"
-          git push origin master
-          git push origin "${{ steps.bump.outputs.tag }}"
+          # 自上一版本 tag 以来的提交记录；尚无 tag 时取最近 30 条
+          last_tag=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          if [ -n "$last_tag" ]; then
+            changes=$(git log "$last_tag"..HEAD --oneline --no-merges)
+          else
+            changes=$(git log --oneline --no-merges -n 30)
+          fi
+          if [ -z "$changes" ]; then
+            changes="（当前版本无新提交）"
+          fi
+          # 多行内容必须使用 heredoc 分隔符语法，否则 GITHUB_OUTPUT 报 "Invalid format"
+          {
+            echo "CHANGES<<DOCUSYNC_EOF"
+            printf '%s\n' "$changes"
+            echo "DOCUSYNC_EOF"
+          } >> "$GITHUB_OUTPUT"
 
   build:
     name: Build ${{ matrix.name }}
-    needs: bump-version
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -107,11 +90,9 @@ jobs:
             artifact_name: DocuSync-macos-arm64
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.bump-version.outputs.tag }}
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -120,7 +101,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -131,6 +112,21 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # tauri.conf.json 是唯一版本来源；构建时把版本同步到 Cargo.toml /
+      # package.json（仅本次构建生效，不回写仓库），保证三处与发布版本一致。
+      - name: Sync version files
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          tmp=$(mktemp)
+          jq --arg v "$VERSION" '.version = $v' src-tauri/tauri.conf.json > "$tmp" && mv "$tmp" src-tauri/tauri.conf.json
+          sed -i -E '0,/^version = "[0-9.]+"$/ s/^version = "[0-9.]+"$/version = "'"$VERSION"'"/' src-tauri/Cargo.toml
+          tmp2=$(mktemp)
+          jq --arg v "$VERSION" '.version = $v' package.json > "$tmp2" && mv "$tmp2" package.json
+          echo "---- synced versions ----"
+          jq -r '.version' src-tauri/tauri.conf.json
+          grep '^version' src-tauri/Cargo.toml
+          jq -r '.version' package.json
 
       # Cargo cache restores src-tauri/target, which carries stale bundle/
       # installers from an earlier release (e.g. a 0.0.2 .exe/.msi). Without
@@ -161,7 +157,7 @@ jobs:
 
       - name: Upload Windows artifacts
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.artifact_name }}
           path: |
@@ -171,7 +167,7 @@ jobs:
 
       - name: Upload macOS artifacts
         if: runner.os == 'macOS'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.artifact_name }}
           path: |
@@ -181,52 +177,37 @@ jobs:
           if-no-files-found: warn
 
   release:
-    name: Publish GitHub Release
-    needs: [bump-version, build]
+    name: Create / update draft GitHub Release
+    needs: [prepare, build]
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TAG: ${{ needs.prepare.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          # Full history + tags so we can list the commits since the last release.
-          fetch-depth: 0
-          fetch-tags: true
+      # gh release 需要在 git 仓库上下文操作（创建 tag 等），必须先 checkout
+      - uses: actions/checkout@v5
 
-      - name: Build release notes from commits
-        run: |
-          CURRENT_TAG="${{ needs.bump-version.outputs.tag }}"
-          # Most recent tag before the current one (the previous release).
-          PREV_TAG=$(git tag --sort=-v:refname | grep -v -Fx "$CURRENT_TAG" | head -n 1 || true)
-          if [ -n "$PREV_TAG" ]; then
-            RANGE="${PREV_TAG}..${CURRENT_TAG}"
-          else
-            RANGE="${CURRENT_TAG}"
-          fi
-          echo "Release notes range: $RANGE"
-          # Commit subjects since the last release. Skip merge commits and the
-          # version-bump commit itself (it carries no user-facing change).
-          CHANGES=$(git log "$RANGE" --pretty=format:"- %s" --no-merges \
-                    | grep -v "^- chore(release): bump version" || true)
-          if [ -z "$CHANGES" ]; then
-            CHANGES="- (无显式提交记录)"
-          fi
-          {
-            echo "## DocuSync ${CURRENT_TAG}"
-            echo ""
-            echo "### 本次更新"
-            echo ""
-            echo "$CHANGES"
-            echo ""
-            echo "### 下载资源"
-            echo "- **Windows**: \`.msi\` (安装包) / \`.exe\` (NSIS 安装包)"
-            echo "- **macOS**: \`.dmg\` (磁盘镜像，Apple Silicon ARM64)"
-          } > release_body.md
-          echo "---- release_body.md ----"
-          cat release_body.md
-
-      - name: Download all artifacts to release/
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           path: release
+
+      - name: Write release notes
+        run: |
+          # 多行内容用带引号的 heredoc 写入；模板表达式在步骤执行前已被 GitHub 替换
+          cat > release_body.md <<'DOCUSYNC_NOTES_EOF_7f3a'
+          # DocuSync v${{ needs.prepare.outputs.version }}
+
+          ## 本次更新
+
+          ${{ needs.prepare.outputs.changes }}
+
+          ## 下载资源
+
+          - **Windows**: \`.msi\` (安装包) / \`.exe\` (NSIS 安装包)
+          - **macOS**: \`.dmg\` (磁盘镜像，Apple Silicon ARM64)
+          DOCUSYNC_NOTES_EOF_7f3a
+          echo "---- release_body.md ----"
+          cat release_body.md
 
       - name: Flatten release directory
         run: |
@@ -238,9 +219,6 @@ jobs:
           ls -la release-flat
 
       - name: Generate updater manifest (latest.json)
-        env:
-          VERSION: ${{ needs.bump-version.outputs.version }}
-          TAG: ${{ needs.bump-version.outputs.tag }}
         run: |
           BASE="https://github.com/ShuCrown/DocuSync/releases/download/${TAG}"
           # Updater artifacts are the only build outputs with a .sig sidecar.
@@ -289,10 +267,64 @@ jobs:
           echo "---- latest.json ----"
           cat release-flat/latest.json
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.bump-version.outputs.tag }}
-          name: DocuSync ${{ needs.bump-version.outputs.tag }}
-          body_path: release_body.md
-          files: release-flat/*
+      # AskAll 同款逻辑：版本号没变 → 更新已有 draft；版本号变了 → 创建新
+      # tag + draft；该版本已正式发布 → 跳过。上传后逐一校验产物是否都在
+      # assets 中（尤其 latest.json / .sig 这类 updater 关键文件）。
+      - name: Create or update draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 收集全部已下载的产物文件（已摊平为文件，无目录展开问题）
+          mapfile -t files < <(find release-flat -type f)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::No artifact files found"
+            exit 1
+          fi
+          echo "Uploading ${#files[@]} file(s):"
+          printf '%s\n' "${files[@]}"
+
+          # uploaded=1 表示本次确实执行了上传，随后需要校验产物完整性
+          uploaded=0
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            is_draft=$(gh release view "$TAG" --json isDraft --jq '.isDraft')
+            if [ "$is_draft" = "true" ]; then
+              echo "Draft release $TAG 已存在，更新附件与说明…"
+              gh release upload "$TAG" "${files[@]}" --clobber
+              gh release edit "$TAG" \
+                --title "DocuSync v$VERSION" \
+                --notes-file release_body.md \
+                --draft
+              uploaded=1
+            else
+              echo "Release $TAG 已正式发布，跳过自动更新"
+            fi
+          else
+            echo "创建新 draft release $TAG …"
+            gh release create "$TAG" \
+              --title "DocuSync v$VERSION" \
+              --notes-file release_body.md \
+              --draft \
+              "${files[@]}"
+            uploaded=1
+          fi
+
+          # 上传后校验：逐一确认本地产物都已出现在 release assets 中，防止静默丢失
+          if [ "$uploaded" = "1" ]; then
+            echo "=== 校验产物是否全部上传成功 ==="
+            gh release view "$TAG" --json assets --jq '.assets[].name' | sort > /tmp/release_assets.txt
+            missing=0
+            for f in "${files[@]}"; do
+              base=$(basename "$f")
+              if ! grep -qxF "$base" /tmp/release_assets.txt; then
+                echo "::error::Release 缺少产物: $base"
+                missing=1
+              fi
+            done
+            if [ "$missing" -ne 0 ]; then
+              echo "::error::产物上传校验失败，请检查上面的缺失列表"
+              echo "当前 Release assets："
+              cat /tmp/release_assets.txt
+              exit 1
+            fi
+            echo "校验通过：${#files[@]} 个产物均已上传到 Release $TAG"
+          fi
