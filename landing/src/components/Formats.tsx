@@ -24,7 +24,7 @@ function FileCard({
   children: ReactNode
 }) {
   return (
-    <div className="rounded-xl border border-ink/15 bg-card p-4 transition duration-300 hover:-translate-y-1 hover:border-ink/60 hover:shadow-[6px_6px_0_0_#242933]">
+    <div className="rounded-xl border border-ink/15 bg-card p-4 transition duration-300 hover:-translate-y-1 hover:border-ink/60">
       <div className="flex items-center gap-2.5">
         <span
           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[10px] font-bold tracking-wide text-white ${tone}`}

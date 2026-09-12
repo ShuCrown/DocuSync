@@ -51,7 +51,7 @@ export default function Features() {
         <div className="mt-12 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {CARDS.map((card, i) => (
             <Reveal key={card.no} delay={(i % 3) * 60}>
-              <div className="h-full rounded-xl border border-ink/15 bg-card p-6 transition duration-300 hover:-translate-y-1 hover:border-ink/60 hover:shadow-[6px_6px_0_0_#242933]">
+              <div className="h-full rounded-xl border border-ink/15 bg-card p-6 transition duration-300 hover:-translate-y-1 hover:border-ink/60">
                 <p className="font-mono text-xs text-accent">{card.no}</p>
                 <h3 className="mt-3 font-serif text-lg font-bold text-ink">{card.title}</h3>
                 <p className="mt-2 text-sm leading-6 text-ink-soft">{card.desc}</p>

@@ -85,12 +85,12 @@ function SplitDemo() {
 
   return (
     <div className="select-none">
-      <div className="flex items-center justify-between gap-2 border-b border-paper/10 bg-night-edge/80 px-3 py-2 font-mono text-[11px] text-paper/60">
+      <div className="flex items-center justify-between gap-2 border-b border-ink/10 bg-paper-deep/60 px-3 py-2 font-mono text-[11px] text-ink-soft">
         <span className="truncate">{leftName} · {Math.round(100 - ratio)}%</span>
         <button
           type="button"
           onClick={() => setSwapped((v) => !v)}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded border border-paper/25 px-2.5 py-1 transition hover:bg-paper/10 hover:text-paper"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded border border-ink/20 px-2.5 py-1 text-ink transition hover:bg-ink/5 hover:text-accent"
         >
           <IconSwap className="h-3.5 w-3.5" />
           交换 ⇧⌘X
@@ -108,7 +108,7 @@ function SplitDemo() {
           aria-label="调整分栏比例"
           aria-valuenow={Math.round(ratio)}
           tabIndex={0}
-          className="group relative w-2 shrink-0 cursor-col-resize touch-none bg-paper/15 outline-none transition-colors hover:bg-accent-bright focus-visible:bg-accent-bright"
+          className="group relative w-2 shrink-0 cursor-col-resize touch-none bg-ink/10 outline-none transition-colors hover:bg-accent-bright focus-visible:bg-accent-bright"
           onPointerDown={(e) => {
             dragging.current = true
             e.currentTarget.setPointerCapture(e.pointerId)
@@ -129,7 +129,7 @@ function SplitDemo() {
           }}
         >
           <span className="absolute inset-y-0 left-1/2 flex h-full w-4 -translate-x-1/2 items-center justify-center">
-            <span className="h-8 w-0.5 rounded-full bg-paper/40 transition group-hover:bg-white" />
+            <span className="h-8 w-0.5 rounded-full bg-ink/25 transition group-hover:bg-accent" />
           </span>
         </div>
         <div className="min-w-0 flex-1 overflow-hidden">
@@ -137,7 +137,7 @@ function SplitDemo() {
         </div>
       </div>
 
-      <p className="mt-4 text-center font-mono text-[11px] text-paper/50">
+      <p className="mt-4 text-center font-mono text-[11px] text-ink-faint">
         ↑ 试一试：拖动中间的分隔条，或点「交换」—— 真实应用里同样顺滑
       </p>
     </div>
@@ -146,11 +146,10 @@ function SplitDemo() {
 
 export default function SplitSection() {
   return (
-    <section id="split" className="bg-night py-24 text-paper md:py-32">
+    <section id="split" className="py-24 md:py-32">
       <div className="mx-auto max-w-6xl px-5 md:px-8">
         <Reveal>
           <SectionHeading
-            dark
             index="02"
             label="分栏对比"
             title="并排阅读，本来就该这么简单。"
@@ -163,12 +162,10 @@ export default function SplitSection() {
             <ul className="space-y-6">
               {HINTS.map((hint) => (
                 <li key={hint.keys} className="flex items-start gap-4">
-                  <span className="kbd shrink-0 !border-paper/25 !bg-transparent !text-paper/80">
-                    {hint.keys}
-                  </span>
+                  <span className="kbd shrink-0">{hint.keys}</span>
                   <div>
-                    <p className="text-[15px] font-medium text-paper">{hint.title}</p>
-                    <p className="mt-0.5 text-sm text-paper/60">{hint.desc}</p>
+                    <p className="text-[15px] font-medium text-ink">{hint.title}</p>
+                    <p className="mt-0.5 text-sm text-ink-soft">{hint.desc}</p>
                   </div>
                 </li>
               ))}
@@ -176,7 +173,7 @@ export default function SplitSection() {
           </Reveal>
 
           <Reveal className="lg:col-span-3" delay={120}>
-            <div className="overflow-hidden rounded-xl border border-paper/20 shadow-2xl">
+            <div className="overflow-hidden rounded-xl border border-ink/15 bg-card shadow-window">
               <SplitDemo />
             </div>
           </Reveal>
