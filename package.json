@@ -2,6 +2,7 @@
   "name": "docusync",
   "private": true,
   "version": "0.0.34",
+  "packageManager": "pnpm@10.34.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,6 +13,7 @@
     "pages:deploy": "wrangler pages deploy",
     "worker:dev": "cd worker && wrangler dev",
     "worker:deploy": "cd worker && wrangler deploy",
+    "landing:deploy": "cd landing && npm run deploy",
     "deploy": "npm run worker:deploy && npm run pages:deploy",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

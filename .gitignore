@@ -33,6 +33,8 @@ dist-ssr
 # OS
 .DS_Store
 Thumbs.db
+._*
+**/._*
 
 # TypeScript
 *.tsbuildinfo
