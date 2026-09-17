@@ -34,12 +34,6 @@ export default function Nav() {
           >
             <IconGithub className="h-[18px] w-[18px]" />
           </a>
-          <a
-            href="#start"
-            className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-paper transition hover:bg-accent"
-          >
-            开始使用
-          </a>
         </div>
       </div>
     </header>

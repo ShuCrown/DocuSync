@@ -28,20 +28,13 @@ export default function Hero() {
           style={{ animationDelay: '0.32s' }}
         >
           <a
-            href="#start"
-            className="inline-flex items-center gap-2.5 rounded-full bg-accent px-6 py-3 text-[15px] font-medium text-white shadow-lg shadow-accent/25 transition hover:-translate-y-0.5 hover:bg-accent-bright"
-          >
-            开始使用
-            <IconArrowUpRight className="h-4 w-4 rotate-45 text-white/80" />
-          </a>
-          <a
             href={LINKS.webApp}
             target="_blank"
             rel="noreferrer"
-            className="group inline-flex items-center gap-2 rounded-full border border-ink/20 bg-card px-6 py-3 text-[15px] font-medium text-ink transition hover:-translate-y-0.5 hover:border-ink/50"
+            className="group inline-flex items-center gap-2 rounded-full bg-accent px-6 py-3 text-[15px] font-medium text-white shadow-lg shadow-accent/25 transition hover:-translate-y-0.5 hover:bg-accent-bright"
           >
             打开 Web 版
-            <IconArrowUpRight className="h-4 w-4 text-ink-faint transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-accent" />
+            <IconArrowUpRight className="h-4 w-4 text-white/80 transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
           </a>
         </div>
       </div>
