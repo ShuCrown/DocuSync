@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react'
 import { renderAsync } from 'docx-preview'
 import * as XLSX from 'xlsx'
 import JSZip from 'jszip'
@@ -299,6 +299,13 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
               // Preserve column widths (wpx px / wch char units) for faithful layout
               cols.push(sheet['!cols'] ?? [])
               texts.push(`[${name}]\n${XLSX.utils.sheet_to_csv(sheet)}`)
+            } else {
+              // Sheet name without a backing worksheet object: keep the arrays
+              // index-aligned with sheetNames so tab N maps to data N.
+              sheets.push([])
+              merges.push([])
+              cols.push([])
+              texts.push(`[${name}]\n`)
             }
           }
           const extractedText = texts.join('\n\n')
@@ -338,6 +345,37 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
     process()
     return () => { cancelled = true }
   }, [file, category, cacheKey])
+
+  // Excel: give the sheet layout a REAL pixel height. The zoom layer sizes
+  // itself with min-height only, which is NOT a definite height per spec:
+  // Chromium stretches flex-1 descendants anyway (so web looks fine) but
+  // WebKit (the Tauri app) follows the spec and collapses the whole
+  // h-full/flex-1 chain — the tab bar ends up mid-flow and the outer zoom
+  // scroller scrolls past it. Measuring pane-height / zoom makes the chain
+  // definite in every engine and keeps min-h-full working on EMPTY sheets,
+  // where the percentage would otherwise resolve to 0 (invisible canvas).
+  const excelRef = useRef<HTMLDivElement>(null)
+  const [paneHeight, setPaneHeight] = useState<number | null>(null)
+
+  useLayoutEffect(() => {
+    if (category !== 'excel') return
+    const el = excelRef.current
+    if (!el) return
+    const layer = el.closest<HTMLElement>('.doc-zoom-layer')
+    const scroller = layer?.parentElement
+    if (!layer || !scroller) return
+    const update = () => {
+      const t = getComputedStyle(layer).transform
+      const scale = t === 'none' ? 1 : new DOMMatrixReadOnly(t).a || 1
+      setPaneHeight(scroller.clientHeight / scale)
+    }
+    update()
+    const ro = new ResizeObserver(update)
+    // The layer's width is 100%/zoom, so observing it also catches zoom changes.
+    ro.observe(layer)
+    ro.observe(scroller)
+    return () => ro.disconnect()
+  }, [category, loading])
 
   // Word: always keep container in DOM so ref is available for renderAsync
   if (category === 'word') {
@@ -422,7 +460,11 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
   }
 
   return (
-    <div className="flex flex-col flex-1 bg-surface-card">
+    <div
+      ref={excelRef}
+      className={`flex flex-col bg-surface-card ${paneHeight == null ? 'flex-1' : ''}`}
+      style={paneHeight != null ? { height: `${paneHeight}px` } : undefined}
+    >
       {/* Table area — the sheet canvas fills the whole pane (min-h-full on a
           definite-height flex parent), so a small sheet no longer sits
           squeezed at the top; the white sheet background covers the rest,
