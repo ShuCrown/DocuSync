@@ -105,11 +105,9 @@ export default function Hero() {
           />
           <AppWindow />
           <p className="mt-5 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 font-mono text-xs text-ink-faint">
-            <span>分栏 <span className="kbd">⌘D</span></span>
-            <span aria-hidden="true">·</span>
             <span>交换 <span className="kbd">⇧⌘X</span></span>
             <span aria-hidden="true">·</span>
-            <span>标签 <span className="kbd">⌘1–9</span></span>
+            <span>方向 <span className="kbd">⌥⌘D</span></span>
             <span aria-hidden="true">·</span>
             <span>缩放 <span className="kbd">⌘ +/−</span></span>
           </p>

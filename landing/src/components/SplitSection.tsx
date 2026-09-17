@@ -6,7 +6,6 @@ import { IconSwap } from './icons'
 const clamp = (v: number) => Math.min(78, Math.max(22, v))
 
 const HINTS: Array<{ keys: string; title: string; desc: string }> = [
-  { keys: '⌘D', title: '新建分栏', desc: '左右 / 上下，随时再分' },
   { keys: '⇧⌘X', title: '交换两侧', desc: '一键对调两份文档' },
   { keys: '⌥⌘D', title: '切换方向', desc: '水平 ↔ 垂直' },
   { keys: '⌘ +/−', title: '独立缩放', desc: '每个分栏各自滚动、缩放' },

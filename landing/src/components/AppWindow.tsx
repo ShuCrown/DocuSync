@@ -145,7 +145,6 @@ export default function AppWindow() {
 
       {/* 工具栏 */}
       <div className="flex items-center gap-2 border-b border-ink/8 bg-card px-3 py-1.5">
-        <Chip>分栏 ⌘D</Chip>
         <Chip>交换 ⇧⌘X</Chip>
         <Chip>方向 ⌥⌘D</Chip>
         <span className="ml-auto">
