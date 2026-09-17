@@ -1,3 +1,5 @@
+import type { CSSProperties } from 'react'
+
 interface IconProps {
   className?: string
 }
@@ -65,6 +67,54 @@ export function IconGithub({ className }: IconProps) {
     </svg>
   )
 }
+
+/** 文件类型图标 —— 与应用内 fileIcon.tsx 同源的 lucide 图形 */
+function fileIcon(paths: Array<string>) {
+  return function FileIcon({ className, style }: IconProps & { style?: CSSProperties }) {
+    return (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={className}
+        style={style}
+        aria-hidden="true"
+      >
+        {paths.map((d) => (
+          <path key={d} d={d} />
+        ))}
+      </svg>
+    )
+  }
+}
+
+export const IconFileText = fileIcon([
+  'M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z',
+  'M14 2v5a1 1 0 0 0 1 1h5',
+  'M10 9H8',
+  'M16 13H8',
+  'M16 17H8',
+])
+
+export const IconFileType = fileIcon([
+  'M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z',
+  'M14 2v5a1 1 0 0 0 1 1h5',
+  'M11 18h2',
+  'M12 12v6',
+  'M9 13v-.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5v.5',
+])
+
+export const IconFileSpreadsheet = fileIcon([
+  'M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z',
+  'M14 2v5a1 1 0 0 0 1 1h5',
+  'M8 13h2',
+  'M14 13h2',
+  'M8 17h2',
+  'M14 17h2',
+])
 
 export function IconPlus({ className }: IconProps) {
   return (

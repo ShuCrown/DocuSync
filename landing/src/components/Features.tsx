@@ -1,7 +1,7 @@
 import Reveal from './Reveal'
 import SectionHeading from './SectionHeading'
 
-const CARDS: Array<{ no: string; title: string; desc: string }> = [
+const FEATURES: Array<{ no: string; title: string; desc: string }> = [
   {
     no: '01',
     title: '最近查看',
@@ -34,7 +34,7 @@ const CARDS: Array<{ no: string; title: string; desc: string }> = [
   },
 ]
 
-/** 03 · 更多细节：kaku 式编号特性网格 */
+/** 03 · 更多细节：kaku 式编号两栏列表 */
 export default function Features() {
   return (
     <section id="features" className="py-24 md:py-32">
@@ -48,13 +48,13 @@ export default function Features() {
           />
         </Reveal>
 
-        <div className="mt-12 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {CARDS.map((card, i) => (
-            <Reveal key={card.no} delay={(i % 3) * 60}>
-              <div className="h-full rounded-xl border border-ink/15 bg-card p-6 transition duration-300 hover:-translate-y-1 hover:border-ink/60">
-                <p className="font-mono text-xs text-accent">{card.no}</p>
-                <h3 className="mt-3 font-serif text-lg font-bold text-ink">{card.title}</h3>
-                <p className="mt-2 text-sm leading-6 text-ink-soft">{card.desc}</p>
+        <div className="mt-14 grid gap-x-16 gap-y-10 md:grid-cols-2">
+          {FEATURES.map((feature, i) => (
+            <Reveal key={feature.no} delay={(i % 2) * 60}>
+              <div className="border-t border-ink/10 pt-5">
+                <p className="font-mono text-xs text-accent">{feature.no}</p>
+                <h3 className="mt-2 font-serif text-lg font-bold text-ink">{feature.title}</h3>
+                <p className="mt-1.5 text-sm leading-6 text-ink-soft">{feature.desc}</p>
               </div>
             </Reveal>
           ))}

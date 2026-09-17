@@ -4,7 +4,6 @@ import Formats from './components/Formats'
 import SplitSection from './components/SplitSection'
 import Features from './components/Features'
 import Start from './components/Start'
-import Footer from './components/Footer'
 
 export default function App() {
   return (
@@ -18,7 +17,6 @@ export default function App() {
         <Features />
         <Start />
       </main>
-      <Footer />
     </div>
   )
 }

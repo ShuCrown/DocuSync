@@ -1,15 +1,13 @@
-import { LINKS, detectOS, downloadLabel } from '../config'
+import { LINKS } from '../config'
 import { IconGithub, Logo } from './icons'
 
 const NAV_LINKS = [
   { href: '#formats', label: '特性' },
   { href: '#split', label: '分栏对比' },
-  { href: '#start', label: '下载' },
+  { href: '#start', label: '开始使用' },
 ]
 
 export default function Nav() {
-  const label = downloadLabel(detectOS())
-
   return (
     <header className="fixed inset-x-0 top-0 z-40 border-b border-ink/10 bg-paper/80 backdrop-blur-md">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-5 md:px-8">
@@ -37,12 +35,10 @@ export default function Nav() {
             <IconGithub className="h-[18px] w-[18px]" />
           </a>
           <a
-            href={LINKS.releases}
-            target="_blank"
-            rel="noreferrer"
+            href="#start"
             className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-paper transition hover:bg-accent"
           >
-            {label}
+            开始使用
           </a>
         </div>
       </div>

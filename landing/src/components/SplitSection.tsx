@@ -1,15 +1,8 @@
 import { useRef, useState } from 'react'
 import Reveal from './Reveal'
-import SectionHeading from './SectionHeading'
 import { IconSwap } from './icons'
 
 const clamp = (v: number) => Math.min(78, Math.max(22, v))
-
-const HINTS: Array<{ keys: string; title: string; desc: string }> = [
-  { keys: '⇧⌘X', title: '交换两侧', desc: '一键对调两份文档' },
-  { keys: '⌥⌘D', title: '切换方向', desc: '水平 ↔ 垂直' },
-  { keys: '⌘ +/−', title: '独立缩放', desc: '每个分栏各自滚动、缩放' },
-]
 
 const MASK = {
   maskImage: 'linear-gradient(to bottom, black 76%, transparent 98%)',
@@ -92,7 +85,7 @@ function SplitDemo() {
           className="inline-flex shrink-0 items-center gap-1.5 rounded border border-ink/20 px-2.5 py-1 text-ink transition hover:bg-ink/5 hover:text-accent"
         >
           <IconSwap className="h-3.5 w-3.5" />
-          交换 ⇧⌘X
+          交换
         </button>
         <span className="truncate">{rightName} · {Math.round(ratio)}%</span>
       </div>
@@ -147,31 +140,29 @@ export default function SplitSection() {
   return (
     <section id="split" className="py-24 md:py-32">
       <div className="mx-auto max-w-6xl px-5 md:px-8">
-        <Reveal>
-          <SectionHeading
-            index="02"
-            label="分栏对比"
-            title="并排阅读，本来就该这么简单。"
-            sub="左右 / 上下分栏，拖动分隔条调整比例；每个分栏独立滚动与缩放，切换标签时文档状态完整保留。"
-          />
-        </Reveal>
-
-        <div className="mt-12 gap-10 lg:grid lg:grid-cols-5">
-          <Reveal className="lg:col-span-2">
-            <ul className="space-y-6">
-              {HINTS.map((hint) => (
-                <li key={hint.keys} className="flex items-start gap-4">
-                  <span className="kbd shrink-0">{hint.keys}</span>
-                  <div>
-                    <p className="text-[15px] font-medium text-ink">{hint.title}</p>
-                    <p className="mt-0.5 text-sm text-ink-soft">{hint.desc}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
+        <div className="grid gap-6 md:grid-cols-[1fr_360px] md:items-end md:gap-12">
+          <Reveal>
+            <div>
+              <p className="flex items-center gap-3 font-mono text-[13px] tracking-widest text-ink-faint">
+                <span className="text-accent">02</span>
+                <span aria-hidden="true">·</span>
+                <span>分栏对比</span>
+                <span aria-hidden="true" className="h-px flex-1 bg-ink/10" />
+              </p>
+              <h2 className="mt-5 font-serif text-3xl font-bold leading-snug tracking-tight text-ink md:text-4xl">
+                并排阅读，本来就该这么简单。
+              </h2>
+            </div>
           </Reveal>
+          <Reveal delay={80}>
+            <p className="text-[15px] leading-7 text-ink-soft md:pb-1">
+              左右 / 上下分栏，拖动分隔条调整比例；每个分栏独立滚动与缩放，切换标签时文档状态完整保留。
+            </p>
+          </Reveal>
+        </div>
 
-          <Reveal className="lg:col-span-3" delay={120}>
+        <div className="mt-12">
+          <Reveal>
             <div className="overflow-hidden rounded-xl border border-ink/15 bg-card shadow-window">
               <SplitDemo />
             </div>

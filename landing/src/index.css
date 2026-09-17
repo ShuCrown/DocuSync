@@ -89,20 +89,6 @@ body {
   background: color-mix(in srgb, var(--color-ink) 10%, transparent);
 }
 
-/* 键位标记 */
-.kbd {
-  display: inline-block;
-  border: 1px solid color-mix(in srgb, var(--color-ink) 18%, transparent);
-  border-bottom-width: 2px;
-  border-radius: 5px;
-  padding: 0 5px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 18px;
-  background: var(--color-card);
-  color: var(--color-ink-soft);
-}
-
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
