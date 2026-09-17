@@ -1,17 +1,21 @@
 @import "tailwindcss";
 
 @theme {
+  /* Aligned with the Kami design system (kami.tw93.fun) color spec:
+     canvas = parchment/ivory/warm-sand, brand = ink blue family,
+     neutrals = warm near-black/olive, error = deep warm red. */
   --color-primary: #1B365D;
-  --color-primary-light: #2A4A7F;
+  --color-primary-light: #2D5A8A;
   --color-primary-dark: #0F2240;
   --color-surface: #f5f4ed;
-  --color-surface-alt: #ece9df;
+  --color-surface-alt: #e8e6dc;
   --color-surface-card: #faf9f5;
-  --color-border: #d5d0c4;
-  --color-text: #2c2825;
-  --color-text-secondary: #7a7267;
+  --color-code-bg: #f0eee6;
+  --color-border: #e8e6dc;
+  --color-text: #141413;
+  --color-text-secondary: #504e49;
   --color-success: #3a7d5c;
-  --color-error: #b34242;
+  --color-error: #b53333;
   --color-warning: #a67c30;
 }
 
@@ -74,6 +78,13 @@ body {
 .markdown-body code {
   font-size: 0.88em;
   font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
+}
+
+/* Inline code gets Kami's warm paper tint (block code is handled by pre above) */
+.markdown-body :not(pre) > code {
+  background: var(--color-code-bg);
+  padding: 2px 5px;
+  border-radius: 4px;
 }
 
 .markdown-body img {

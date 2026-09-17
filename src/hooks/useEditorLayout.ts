@@ -330,3 +330,13 @@ export function getActiveFile(root: SplitNode | null, activeLeafId: string | nul
   if (!leaf || leaf.activeTabId === null) return null
   return leaf.tabs.find((t) => t.id === leaf.activeTabId)?.file ?? null
 }
+
+/** Nearest enclosing split of a leaf (its direct parent), or null when the
+ *  leaf is the un-split root. Used by ⇧⌘X swap / ⌥⌘D direction shortcuts. */
+export function findParentSplit(node: SplitNode, leafId: string): SplitNodeT | null {
+  if (node.kind === 'leaf') return null
+  const inFirst = node.first.kind === 'leaf' && node.first.id === leafId
+  const inSecond = node.second.kind === 'leaf' && node.second.id === leafId
+  if (inFirst || inSecond) return node
+  return findParentSplit(node.first, leafId) ?? findParentSplit(node.second, leafId)
+}

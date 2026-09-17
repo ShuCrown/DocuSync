@@ -328,7 +328,7 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
       {/* Scrollable page container */}
       <div
         ref={containerRef}
-        className="pdf-scroller flex-1 overflow-auto bg-[#525659]"
+        className="pdf-scroller flex-1 overflow-auto bg-[#504e49]"
       >
         <div className="flex flex-col items-center py-4 gap-2">
           {pageList}

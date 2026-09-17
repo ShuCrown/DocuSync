@@ -271,7 +271,7 @@ function Divider({
     <div
       ref={containerRef}
       onMouseDown={handleMouseDown}
-      className={`shrink-0 relative group bg-[#e6e5e0] ${
+      className={`shrink-0 relative group bg-surface-alt ${
         isHorizontal ? 'w-2 cursor-col-resize' : 'h-2 cursor-row-resize'
       }`}
     >

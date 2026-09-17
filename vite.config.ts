@@ -14,7 +14,7 @@ export default defineConfig({
       output: {
         // Split large vendor libraries into dedicated chunks for better caching.
         // React changes rarely; pdfjs/xlsx are only needed for specific file types.
-        manualChunks(id) {
+        manualChunks(id: string) {
           if (id.includes('node_modules')) {
             if (id.includes('react-dom') || id.includes('/react/')) {
               return 'react-vendor'

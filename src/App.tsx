@@ -14,7 +14,7 @@ import { UpdateBanner } from './components/UpdateBanner'
 import { useFileUpload } from './hooks/useFileUpload'
 import { useFileHistory } from './hooks/useFileHistory'
 import { useAccount } from './hooks/useAccount'
-import { useEditorLayout, getActiveFile } from './hooks/useEditorLayout'
+import { useEditorLayout, getActiveFile, findParentSplit } from './hooks/useEditorLayout'
 import { autoCheckForUpdate } from './hooks/useUpdater'
 import { getFileCategory, isSupported } from './utils/fileType'
 import { isTauri } from './utils/tauri'
@@ -143,6 +143,41 @@ export default function App() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  // Layout shortcuts (as advertised on the landing page):
+  //   ⇧⌘X   swap the two sides of the active pane's split
+  //   ⌥⌘D   toggle that split's direction (horizontal ↔ vertical)
+  // (⌘D split and ⌘1-9 tab switching were dropped: browsers reserve those
+  // accelerators — bookmark / own tab switching — so they'd never reliably
+  // reach the web app; the toolbar buttons cover both actions.)
+  // Uses e.code (not e.key): with ⌥ held, macOS reports special chars in e.key.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+
+      if (e.code === 'KeyD' && e.altKey) {
+        // ⌥⌘D: flip the enclosing split's direction
+        if (!root || !activeLeafId) return
+        const split = findParentSplit(root, activeLeafId)
+        if (split) {
+          e.preventDefault()
+          toggleDirection(split.id)
+        }
+      } else if (e.code === 'KeyX' && e.shiftKey) {
+        // ⇧⌘X: swap the two sides of the active pane's split
+        if (!root || !activeLeafId) return
+        const split = findParentSplit(root, activeLeafId)
+        if (split) {
+          e.preventDefault()
+          swapChildren(split.id)
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [root, activeLeafId, swapChildren, toggleDirection])
 
   // Ctrl/Cmd + mouse wheel zooms the DOCUMENT area like a browser. Wheel events
   // are always delivered to the page (they are not reserved browser

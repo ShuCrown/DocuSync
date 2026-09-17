@@ -24,17 +24,17 @@ export interface FileIconSpec {
 export function getFileIconSpec(category: FileCategory): FileIconSpec {
   switch (category) {
     case 'pdf':
-      return { Icon: FileText, color: '#b34242' }
+      return { Icon: FileText, color: '#b53333' }
     case 'word':
-      return { Icon: FileType, color: '#2a4a7f' }
+      return { Icon: FileType, color: '#2d5a8a' }
     case 'excel':
       return { Icon: FileSpreadsheet, color: '#3a7d5c' }
     case 'powerpoint':
       return { Icon: Presentation, color: '#c2571b' }
     case 'markdown':
-      return { Icon: FileCode, color: '#7a7267' }
+      return { Icon: FileCode, color: '#6b6a64' }
     default:
-      return { Icon: File, color: '#7a7267' }
+      return { Icon: File, color: '#6b6a64' }
   }
 }
 
