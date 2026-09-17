@@ -1,4 +1,13 @@
-import { IconFileSpreadsheet, IconFileText, IconFileType, IconPlus } from './icons'
+import {
+  IconColumns,
+  IconFileSpreadsheet,
+  IconFileText,
+  IconFileType,
+  IconPlus,
+  IconRows,
+  IconShare,
+  IconSquareX,
+} from './icons'
 
 /** 与应用内 fileIcon.tsx 一致的类型色 */
 const FILE_ICON: Record<string, { Icon: typeof IconFileText; color: string }> = {
@@ -40,36 +49,45 @@ function Tab({
   )
 }
 
-/** 文档区 —— 深灰画布 + 居中纸页，与应用内 PDF 查看器一致 */
-function PdfPage() {
+/** 文档纸页 —— 暖纸画布上的白纸，衬线骨架 + 墨蓝批注 */
+function DocumentPage() {
   return (
-    <div className="flex h-full flex-col items-center gap-2 overflow-hidden bg-[#504e49] py-4">
-      <div className="w-[240px] shrink-0 rounded-sm bg-white p-4 shadow-md">
-        <div className="sk h-3 w-2/5" />
-        <div className="sk mt-3 h-1.5 w-full" />
-        <div className="sk mt-1.5 h-1.5 w-11/12" />
-        <div className="sk mt-1.5 h-1.5 w-4/5" />
-        <div className="mt-3 flex h-16 items-center justify-center rounded border border-ink/8 bg-paper">
-          <div className="flex h-11 items-end gap-1.5">
-            <span className="h-5 w-2.5 bg-pdf/25" />
-            <span className="h-9 w-2.5 bg-pdf/40" />
-            <span className="h-7 w-2.5 bg-pdf/30" />
-            <span className="h-11 w-2.5 bg-pdf/45" />
+    <div className="flex h-full items-start justify-center overflow-hidden bg-paper-deep/70 px-6 py-6">
+      <div className="w-full max-w-[300px] rounded-sm bg-card p-5 shadow-[0_1px_3px_rgba(20,20,19,0.10),0_12px_32px_-12px_rgba(20,20,19,0.25)]">
+        <p className="font-mono text-[9px] text-ink-faint">第 3 页 · 共 14 页</p>
+        <div className="mt-3 h-3.5 w-1/2 rounded-full bg-ink/70" />
+        <div className="mt-4 space-y-2">
+          <div className="sk h-1.5 w-full" />
+          <div className="sk h-1.5 w-11/12" />
+          <div className="rounded border-l-2 border-accent bg-accent/8 px-2.5 py-1.5">
+            <div className="sk h-1.5 w-9/12" />
+          </div>
+          <div className="sk h-1.5 w-full" />
+          <div className="sk h-1.5 w-2/3" />
+        </div>
+        <div className="mt-4 border-y border-ink/10 py-2.5">
+          <div className="flex h-9 items-end gap-2 px-1">
+            <span className="w-2.5 rounded-t-sm bg-accent/25" style={{ height: '40%' }} />
+            <span className="w-2.5 rounded-t-sm bg-accent/45" style={{ height: '70%' }} />
+            <span className="w-2.5 rounded-t-sm bg-accent/35" style={{ height: '55%' }} />
+            <span className="w-2.5 rounded-t-sm bg-accent/60" style={{ height: '90%' }} />
+          </div>
+          <div className="mt-2 h-px bg-ink/10" />
+          <div className="mt-2 flex justify-between">
+            <span className="sk h-1.5 w-10" />
+            <span className="sk h-1.5 w-10" />
           </div>
         </div>
-        <div className="sk mt-3 h-1.5 w-full" />
-        <div className="sk mt-1.5 h-1.5 w-2/3" />
+        <div className="mt-4 space-y-2">
+          <div className="sk h-1.5 w-full" />
+          <div className="sk h-1.5 w-5/12" />
+        </div>
       </div>
-      <div className="w-[240px] shrink-0 rounded-sm bg-white p-4 opacity-50 shadow-md">
-        <div className="sk h-1.5 w-1/2" />
-        <div className="sk mt-2 h-1.5 w-full" />
-      </div>
-      <p className="mt-auto font-mono text-[10px] text-white/50">‹ 3 / 14 ›</p>
     </div>
   )
 }
 
-/** 应用主窗口 mockup —— 纯 CSS 还原多标签 + 文档预览界面 */
+/** 应用主窗口 mockup —— 纸面风格：多标签 + 工具栏 + 文档预览 */
 export default function AppWindow() {
   return (
     <div className="overflow-hidden rounded-xl border border-ink/15 bg-card shadow-window md:rounded-2xl">
@@ -85,21 +103,25 @@ export default function AppWindow() {
         </span>
       </div>
 
-      {/* 标签栏 —— VSCode 式：类型图标 + 文件名 + 关闭 ×，右侧新建 */}
+      {/* 标签栏 —— 类型图标 + 文件名 + 关闭 ×，右侧与应用一致的五件工具 */}
       <div className="flex items-stretch border-b border-ink/10 bg-paper-deep/60">
         <div className="flex min-w-0 flex-1 items-stretch">
           <Tab name="合同-v3.pdf" color="pdf" active />
           <Tab name="报价单.docx" color="word" />
           <Tab name="预算表.xlsx" color="excel" />
         </div>
-        <span className="flex items-center px-2 text-ink-faint">
+        <span className="flex items-center gap-1 border-l border-ink/10 px-2.5 text-ink-faint">
+          <IconShare className="h-3.5 w-3.5" />
+          <IconColumns className="h-3.5 w-3.5" />
+          <IconRows className="h-3.5 w-3.5" />
           <IconPlus className="h-3.5 w-3.5" />
+          <IconSquareX className="h-3.5 w-3.5" />
         </span>
       </div>
 
       {/* 文档区 */}
       <div className="h-[360px] md:h-[420px]">
-        <PdfPage />
+        <DocumentPage />
       </div>
     </div>
   )
