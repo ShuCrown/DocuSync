@@ -61,9 +61,6 @@ export default function Start() {
                   <IconDownload className="h-[18px] w-[18px]" />
                   {dlLabel}
                 </a>
-                <p className="mt-4 font-mono text-[11px] text-ink-faint">
-                  全部安装包见 GitHub Releases
-                </p>
               </div>
             </div>
           </Reveal>
