@@ -292,7 +292,11 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
           for (const name of names) {
             const sheet = workbook.Sheets[name]
             if (sheet) {
-              const data = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 })
+              // raw:false → formatted display text (cell.w). The default raw
+              // mode turns date-formatted cells into JS Date objects, which
+              // React rejects as children (error #31) and unmounts the whole
+              // tree on switching to that sheet.
+              const data = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, raw: false })
               sheets.push(data as string[][])
               // Preserve merge ranges for proper rowspan/colspan rendering
               merges.push((sheet['!merges'] as { s: { r: number; c: number }; e: { r: number; c: number } }[]) ?? [])
