@@ -1,5 +1,4 @@
-import { LINKS } from '../config'
-import { IconGithub, Logo } from './icons'
+import { Logo } from './icons'
 
 const NAV_LINKS = [
   { href: '#formats', label: '特性' },
@@ -23,18 +22,6 @@ export default function Nav() {
             </a>
           ))}
         </nav>
-
-        <div className="flex items-center gap-2">
-          <a
-            href={LINKS.repo}
-            target="_blank"
-            rel="noreferrer"
-            aria-label="GitHub 仓库"
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-ink/15 text-ink-soft transition hover:border-ink/40 hover:text-ink"
-          >
-            <IconGithub className="h-[18px] w-[18px]" />
-          </a>
-        </div>
       </div>
     </header>
   )
