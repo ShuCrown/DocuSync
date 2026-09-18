@@ -19,6 +19,7 @@ on:
       - 'index.html'
       - 'package.json'
       - 'pnpm-lock.yaml'
+      - 'CHANGELOG.md'
       - 'vite.config.ts'
       - 'tsconfig*.json'
       - '.github/workflows/tauri-build.yml'
@@ -58,12 +59,26 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-          # 自上一版本 tag 以来的提交记录；尚无 tag 时取最近 30 条
-          last_tag=$(git describe --tags --abbrev=0 2>/dev/null || true)
-          if [ -n "$last_tag" ]; then
-            changes=$(git log "$last_tag"..HEAD --oneline --no-merges)
-          else
-            changes=$(git log --oneline --no-merges -n 30)
+          # 优先读取 CHANGELOG.md 中与当前版本匹配的小节（人工维护、面向用户）。
+          # 定位到 `## [版本号]` 后取到下一个 `## [` 之前的内容，并用 awk 去掉
+          # 首尾空行，避免生成说明时出现多余空白。
+          changes=""
+          if [ -f CHANGELOG.md ]; then
+            changes=$(awk -v ver="$version" '
+              $0 ~ "^## \\[" ver "\\]" { inside = 1; next }
+              inside && /^## \[/ { exit }
+              inside { print }
+            ' CHANGELOG.md | awk 'BEGIN { RS = ""; ORS = "\n\n" } { print }')
+          fi
+
+          # 回退：自上一版本 tag 以来的提交记录；尚无 tag 时取最近 30 条
+          if [ -z "$changes" ]; then
+            last_tag=$(git describe --tags --abbrev=0 2>/dev/null || true)
+            if [ -n "$last_tag" ]; then
+              changes=$(git log "$last_tag"..HEAD --oneline --no-merges)
+            else
+              changes=$(git log --oneline --no-merges -n 30)
+            fi
           fi
           if [ -z "$changes" ]; then
             changes="（当前版本无新提交）"

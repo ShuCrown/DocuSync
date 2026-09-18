@@ -1,6 +1,6 @@
 [package]
 name = "docusync-tauri"
-version = "0.0.34"
+version = "0.0.35"
 description = "DocuSync"
 authors = ["you"]
 edition = "2021"
