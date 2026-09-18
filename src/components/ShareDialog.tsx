@@ -15,7 +15,7 @@ const EXPIRY_OPTIONS = [
   { value: '24h', label: '24 小时' },
   { value: '7d', label: '7 天' },
   { value: '30d', label: '30 天' },
-  { value: 'never', label: '永久', desc: '1 年' },
+  { value: 'never', label: '1 年' },
 ]
 
 export function ShareDialog({ open, onClose, docId, fileName }: ShareDialogProps) {
@@ -87,7 +87,7 @@ export function ShareDialog({ open, onClose, docId, fileName }: ShareDialogProps
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        <div className="flex-1 overflow-y-auto slim-scrollbar px-5 py-4 space-y-4">
           {/* File name */}
           <div className="text-sm text-text-secondary truncate">{fileName}</div>
 
@@ -140,7 +140,6 @@ export function ShareDialog({ open, onClose, docId, fileName }: ShareDialogProps
                     `}
                   >
                     <span>{opt.label}</span>
-                    {opt.desc && <span className="text-[11px] opacity-50 ml-1">{opt.desc}</span>}
                   </button>
                 ))}
               </div>
@@ -188,7 +187,7 @@ function ShareItem({
 
   const formatTime = (ts: number) =>
     new Date(ts * 1000).toLocaleString('zh-CN', {
-      month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
     })
 
   return (
