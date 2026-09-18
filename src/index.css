@@ -469,8 +469,24 @@ body {
   vertical-align: middle;
 }
 
-/* Toast entrance (App notice, settings feedback) */
-@keyframes docusync-toast-in {
+/* Slim scrollbar for compact panels (share dialog, settings) — a default
+   scrollbar next to dense list items is visually heavy. */
+.slim-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-text-secondary) 35%, transparent) transparent;
+}
+.slim-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.slim-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.slim-scrollbar::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-text-secondary) 35%, transparent);
+  border-radius: 9999px;
+}
+
+/* Toast entrance (App notice, settings feedback) */@keyframes docusync-toast-in {
   from {
     opacity: 0;
     transform: translate(-50%, -6px);

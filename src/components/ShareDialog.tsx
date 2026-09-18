@@ -108,15 +108,17 @@ export function ShareDialog({ open, onClose, docId, fileName }: ShareDialogProps
           ) : shares.length > 0 ? (
             <div className="space-y-2">
               <div className="text-xs font-medium text-text-secondary">已创建的链接</div>
-              {shares.map((s) => (
-                <ShareItem
-                  key={s.id}
-                  share={s}
-                  copied={copiedId === s.id}
-                  onCopy={handleCopy}
-                  onRevoke={handleRevoke}
-                />
-              ))}
+              <div className="max-h-60 space-y-2 overflow-y-auto slim-scrollbar pr-1 -mr-1">
+                {shares.map((s) => (
+                  <ShareItem
+                    key={s.id}
+                    share={s}
+                    copied={copiedId === s.id}
+                    onCopy={handleCopy}
+                    onRevoke={handleRevoke}
+                  />
+                ))}
+              </div>
             </div>
           ) : null}
 
