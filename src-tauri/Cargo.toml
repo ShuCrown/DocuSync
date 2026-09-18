@@ -13,14 +13,16 @@ crate-type = ["lib", "cdylib", "staticlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+# tauri build 开头的版本校验要求每个插件的 npm 包与 Rust crate 同 major/minor，
+# 所以两侧都用 ~ 把 minor 锁死（patch 仍可更新），避免上游发版后 CI 突然失败。
 tauri = { version = "2", features = ["unstable"] }
-tauri-plugin-opener = "2"
-tauri-plugin-fs = "2"
-tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+tauri-plugin-opener = "~2.5"
+tauri-plugin-fs = "~2.5"
+tauri-plugin-sql = { version = "~2.4", features = ["sqlite"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri-plugin-updater = "2.10.1"
-tauri-plugin-process = "2.3.1"
+tauri-plugin-updater = "~2.11"
+tauri-plugin-process = "~2.3"
 tauri-plugin-global-shortcut = "2"
 
 [features]
