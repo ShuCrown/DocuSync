@@ -197,11 +197,13 @@ export async function unbindEmail() {
 // Shares
 export async function createShare(docId: string, expiresIn: string): Promise<ShareRecord> {
   const deviceId = getDeviceId()
-  return request<ShareRecord>('/shares', {
+  const record = await request<ShareRecord>('/shares', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ documentId: docId, deviceId, expiresIn }),
   })
+  invalidateCache(`/documents/${docId}/shares`)
+  return record
 }
 
 export async function listShares(docId: string): Promise<ShareRecord[]> {
@@ -211,9 +213,11 @@ export async function listShares(docId: string): Promise<ShareRecord[]> {
 
 export async function deleteShare(shareId: string): Promise<{ success: true }> {
   const deviceId = getDeviceId()
-  return request<{ success: true }>(`/shares/${shareId}?deviceId=${encodeURIComponent(deviceId)}`, {
+  const result = await request<{ success: true }>(`/shares/${shareId}?deviceId=${encodeURIComponent(deviceId)}`, {
     method: 'DELETE',
   })
+  invalidateCache('/documents/')
+  return result
 }
 
 export async function getShareInfo(token: string): Promise<ShareInfo> {
