@@ -18,7 +18,7 @@ on:
       - 'public/**'
       - 'index.html'
       - 'package.json'
-      - 'package-lock.json'
+      - 'pnpm-lock.yaml'
       - 'vite.config.ts'
       - 'tsconfig*.json'
       - '.github/workflows/tauri-build.yml'
@@ -92,10 +92,17 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # 本仓库使用 pnpm（package-lock.json 已移除），因此 setup-node 的缓存
+      # 与安装命令都必须走 pnpm；action-setup 必须先于 setup-node 执行，
+      # 否则 setup-node 的 cache: pnpm 找不到 pnpm 可执行文件。
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.1
+
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
+          cache: pnpm
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -111,7 +118,7 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       # tauri.conf.json 是唯一版本来源；构建时把版本同步到 Cargo.toml /
       # package.json（仅本次构建生效，不回写仓库），保证三处与发布版本一致。
@@ -142,7 +149,7 @@ jobs:
         run: rm -rf src-tauri/target/release/bundle
 
       - name: Build Tauri app
-        run: npm run tauri:build
+        run: pnpm tauri:build
         env:
           # Signing key for the updater bundles (.sig). Without these the build
           # produces unsigned updater artifacts and the release step will fail.
