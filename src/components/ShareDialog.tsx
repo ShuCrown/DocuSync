@@ -212,7 +212,13 @@ function ShareItem({
       {!expired && (
         <button
           onClick={() => onCopy(share.id)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-primary text-white hover:opacity-90 transition-opacity"
+          className={`
+            flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors shrink-0
+            ${copied
+              ? 'border-success/30 bg-success/10 text-success'
+              : 'border-primary/25 text-primary hover:border-primary/45 hover:bg-primary/5'
+            }
+          `}
         >
           {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
           {copied ? '已复制' : '复制'}
