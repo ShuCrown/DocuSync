@@ -1,9 +1,11 @@
-import { LINKS } from '../config'
-import { IconArrowUpRight } from './icons'
+import { LINKS, detectOS, downloadLabel } from '../config'
+import { IconArrowUpRight, IconDownload } from './icons'
 import AppWindow from './AppWindow'
 import Reveal from './Reveal'
 
 export default function Hero() {
+  const dlLabel = downloadLabel(detectOS())
+
   return (
     <section id="top" className="pt-32 md:pt-40">
       <div className="mx-auto max-w-6xl px-5 md:px-8">
@@ -35,6 +37,15 @@ export default function Hero() {
           >
             打开 Web 版
             <IconArrowUpRight className="h-4 w-4 text-white/80 transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+          </a>
+          <a
+            href={LINKS.releases}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 rounded-full border border-ink/20 bg-card px-6 py-3 text-[15px] font-medium text-ink transition hover:-translate-y-0.5 hover:border-accent hover:text-accent"
+          >
+            <IconDownload className="h-4 w-4" />
+            {dlLabel}
           </a>
         </div>
       </div>

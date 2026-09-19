@@ -8,7 +8,7 @@ export default function Start() {
   const dlLabel = downloadLabel(detectOS())
 
   return (
-    <section id="start" className="py-24 md:py-32">
+    <section id="start" className="pt-24 pb-14 md:pt-32 md:pb-16">
       <div className="mx-auto max-w-6xl px-5 md:px-8">
         <Reveal>
           <SectionHeading

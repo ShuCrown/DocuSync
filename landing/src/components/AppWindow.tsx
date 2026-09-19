@@ -20,15 +20,17 @@ function Tab({
   name,
   color,
   active = false,
+  className = '',
 }: {
   name: string
   color: keyof typeof FILE_ICON
   active?: boolean
+  className?: string
 }) {
   const { Icon, color: iconColor } = FILE_ICON[color]
   return (
     <span
-      className={`flex items-center gap-1.5 border-r border-ink/10 py-1.5 pl-2.5 pr-1.5 text-xs font-medium ${
+      className={`flex items-center gap-1.5 border-r border-ink/10 py-1.5 pl-2.5 pr-1.5 text-xs font-medium ${className} ${
         active ? 'bg-card text-ink' : 'bg-paper-deep/40 text-ink-soft'
       }`}
     >
@@ -108,7 +110,7 @@ export default function AppWindow() {
         <div className="flex min-w-0 flex-1 items-stretch">
           <Tab name="合同-v3.pdf" color="pdf" active />
           <Tab name="报价单.docx" color="word" />
-          <Tab name="预算表.xlsx" color="excel" />
+          <Tab name="预算表.xlsx" color="excel" className="hidden min-[420px]:flex" />
         </div>
         <span className="flex items-center gap-1 border-l border-ink/10 px-2.5 text-ink-faint">
           <IconShare className="h-3.5 w-3.5" />

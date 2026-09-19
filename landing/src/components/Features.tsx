@@ -1,36 +1,51 @@
 import Reveal from './Reveal'
 import SectionHeading from './SectionHeading'
+import {
+  IconClock,
+  IconColumns,
+  IconHardDrive,
+  IconShare,
+  IconSquareX,
+  IconSwap,
+} from './icons'
+import type { ComponentType } from 'react'
 
-const FEATURES: Array<{ no: string; title: string; desc: string }> = [
+const FEATURES: Array<{ no: string; title: string; desc: string; Icon: ComponentType<{ className?: string }> }> = [
   {
     no: '01',
     title: '最近查看',
     desc: '按预览时间排序、最新置顶；全量列表支持实时过滤、↑↓ 键盘选择、Enter 直接打开。',
+    Icon: IconClock,
   },
   {
     no: '02',
     title: '记录不丢文件',
     desc: '从「最近查看」移除仅隐藏记录，文件仍在原处；彻底删除需要二次确认。',
+    Icon: IconSquareX,
   },
   {
     no: '03',
     title: '同名覆盖',
     desc: '重复上传同名文件会明确提示「将覆盖旧版本」，先传新再删旧，失败也不丢数据。',
+    Icon: IconSwap,
   },
   {
     no: '04',
     title: '在线分享',
     desc: '在线模式一键生成分享链接，任何人点开即可预览，无需登录。',
+    Icon: IconShare,
   },
   {
     no: '05',
     title: '本地优先',
     desc: '桌面端本地模式：文件与元数据全部存于本机，无需账号，数据不出你的电脑。',
+    Icon: IconHardDrive,
   },
   {
     no: '06',
     title: '状态保留',
     desc: '每个分栏独立滚动与缩放，切换标签再回来，文档还是原来的位置。',
+    Icon: IconColumns,
   },
 ]
 
@@ -51,10 +66,15 @@ export default function Features() {
         <div className="mt-14 grid gap-x-16 gap-y-10 md:grid-cols-2">
           {FEATURES.map((feature, i) => (
             <Reveal key={feature.no} delay={(i % 2) * 60}>
-              <div className="border-t border-ink/10 pt-5">
-                <p className="font-mono text-xs text-accent">{feature.no}</p>
-                <h3 className="mt-2 font-serif text-lg font-bold text-ink">{feature.title}</h3>
-                <p className="mt-1.5 text-sm leading-6 text-ink-soft">{feature.desc}</p>
+              <div className="flex gap-4 border-t border-ink/10 pt-5">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
+                  <feature.Icon className="h-[18px] w-[18px]" />
+                </span>
+                <div>
+                  <p className="font-mono text-xs text-accent">{feature.no}</p>
+                  <h3 className="mt-2 font-serif text-lg font-bold text-ink">{feature.title}</h3>
+                  <p className="mt-1.5 text-sm leading-6 text-ink-soft">{feature.desc}</p>
+                </div>
               </div>
             </Reveal>
           ))}
