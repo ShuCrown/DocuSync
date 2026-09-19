@@ -1,5 +1,4 @@
-import { LINKS } from '../config'
-import { IconArrowUpRight, IconGithub, Logo } from './icons'
+import { Logo } from './icons'
 
 const NAV_LINKS = [
   { href: '#formats', label: '特性' },
@@ -24,26 +23,6 @@ export default function Nav() {
           ))}
         </nav>
 
-        <div className="ml-auto flex items-center gap-2.5">
-          <a
-            href={LINKS.repo}
-            target="_blank"
-            rel="noreferrer"
-            aria-label="GitHub 仓库"
-            className="hidden h-9 w-9 items-center justify-center rounded-full text-ink-soft transition hover:bg-ink/5 hover:text-ink sm:flex"
-          >
-            <IconGithub className="h-[18px] w-[18px]" />
-          </a>
-          <a
-            href={LINKS.webApp}
-            target="_blank"
-            rel="noreferrer"
-            className="group inline-flex items-center gap-1.5 rounded-full bg-accent px-4 py-2 text-[13px] font-medium text-white transition hover:bg-accent-bright"
-          >
-            打开 Web 版
-            <IconArrowUpRight className="h-3.5 w-3.5 text-white/80 transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
-          </a>
-        </div>
       </div>
     </header>
   )
