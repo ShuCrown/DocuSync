@@ -448,6 +448,7 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
   const activeData = tableData[activeSheet] ?? []
   const activeMerges = sheetMerges[activeSheet] ?? []
   const activeCols = sheetCols[activeSheet] ?? []
+  const colCount = Math.max(activeCols.length, ...activeData.map((r) => r.length), 0)
 
   // Build skip-set and merge-info for the active sheet
   const skipCell = new Set<string>()
@@ -469,31 +470,64 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
       className={`flex flex-col bg-surface-card ${paneHeight == null ? 'flex-1' : ''}`}
       style={paneHeight != null ? { height: `${paneHeight}px` } : undefined}
     >
-      {/* Table area — the sheet canvas fills the whole pane (min-h-full on a
-          definite-height flex parent), so a small sheet no longer sits
-          squeezed at the top; the white sheet background covers the rest,
-          with the data grid anchored top-left like native Excel. */}
-      <div className="flex-1 overflow-auto p-4 pb-1">
-        <div className="overflow-x-auto min-h-full bg-white shadow-[0_1px_4px_rgba(0,0,0,0.08)]">
-          <table className="w-full text-sm border-collapse">
+      {/* Table area — the sheet canvas fills the whole pane, so a small sheet
+          no longer sits squeezed at the top; the white sheet background covers
+          the rest, with the data grid anchored top-left like native Excel.
+          The visual inset around the grid is the TABLE's own transparent
+          border, not wrapper padding: sticky cells can never stick above
+          their containing block (the table), so wrapper/scroller padding
+          would leave a see-through gutter where scrolled rows bleed past the
+          stuck header. The transparent border scrolls away with the content,
+          letting header/row-numbers pin flush to the pane edges. */}
+      <div className="flex-1 overflow-auto">
+        <div className="flex min-h-full w-fit min-w-full flex-col">
+          <div className="w-full flex-1 bg-white shadow-[0_1px_4px_rgba(0,0,0,0.08)]">
+          {/* border-separate + zero spacing instead of border-collapse:
+              with collapse, sticky cells' backgrounds/borders are painted by
+              the table grid and get left behind when the cell sticks (data
+              bleeds through the header/row-number column). In separate mode
+              each cell paints its own background, so sticky works. Single
+              gridlines come from per-cell bottom/right borders. */}
+          <table className="w-full border-[16px_16px_4px_16px] border-transparent text-sm border-separate border-spacing-0">
             <colgroup>
-              {activeCols.map((col, i) => {
+              <col className="w-10" />
+              {Array.from({ length: colCount }, (_, i) => {
+                const col = activeCols[i]
                 // wpx = pixels; wch = character units (~7.5px each + padding)
                 const wpx = col?.wpx ?? (col?.wch != null ? Math.round(col.wch * 7.5 + 5) : undefined)
                 return wpx ? <col key={i} style={{ width: `${wpx}px` }} /> : <col key={i} />
               })}
             </colgroup>
+            <thead>
+              <tr>
+                <th className="sticky top-0 left-0 z-20 border-t border-l border-b border-r border-border bg-surface-alt" />
+                {Array.from({ length: colCount }, (_, i) => (
+                  <th
+                    key={i}
+                    className="sticky top-0 z-10 border-t border-b border-r border-border bg-surface-alt px-3 py-1 text-xs font-medium text-text-secondary"
+                  >
+                    {XLSX.utils.encode_col(i)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
             <tbody>
               {activeData.map((row, rowIdx) => (
-                <tr key={rowIdx} className={rowIdx === 0 ? 'bg-surface-alt font-medium' : ''}>
-                  {row.map((cell, colIdx) => {
+                <tr key={rowIdx}>
+                  <td className="sticky left-0 z-10 border-l border-b border-r border-border bg-surface-alt px-2 py-1 text-center text-xs text-text-secondary">
+                    {rowIdx + 1}
+                  </td>
+                  {Array.from({ length: colCount }, (_, colIdx) => {
+                    const cell = row[colIdx]
                     const key = `${rowIdx},${colIdx}`
                     if (skipCell.has(key)) return null
                     const mi = mergeInfo.get(key)
                     return (
                       <td
                         key={colIdx}
-                        className="border border-border px-3 py-1.5 text-text whitespace-nowrap"
+                        className={`border-b border-r border-border px-3 py-1.5 text-text whitespace-pre-wrap break-words max-w-[360px] ${
+                          rowIdx === 0 ? 'bg-surface-alt font-medium' : ''
+                        }`}
                         rowSpan={mi?.rowSpan}
                         colSpan={mi?.colSpan}
                       >
@@ -505,6 +539,7 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
 

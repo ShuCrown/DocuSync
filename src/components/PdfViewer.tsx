@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import { ZoomIn, ZoomOut } from 'lucide-react'
+import 'pdfjs-dist/web/pdf_viewer.css'
 
 // Set worker source
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -18,6 +19,7 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
   const latestOnTextExtractedRef = useRef(onTextExtracted)
   const [pdf, setPdf] = useState<pdfjsLib.PDFDocumentProxy | null>(null)
   const [totalPages, setTotalPages] = useState(0)
+  const [loadError, setLoadError] = useState<string | null>(null)
   /** User zoom relative to fit-width (1 = page fills the pane width) */
   const [userZoom, setUserZoom] = useState(1)
   const [currentPage, setCurrentPage] = useState(1)
@@ -47,14 +49,24 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
   useEffect(() => {
     let cancelled = false
     const load = async () => {
-      const loadingTask = pdfjsLib.getDocument({ url })
-      const doc = await loadingTask.promise
-      if (cancelled) return
-      setPdf(doc)
-      setTotalPages(doc.numPages)
-      setCurrentPage(1)
-      // New document: reset per-page render bookkeeping
-      renderedScale.current.clear()
+      try {
+        const loadingTask = pdfjsLib.getDocument({ url })
+        const doc = await loadingTask.promise
+        if (cancelled) return
+        setPdf(doc)
+        setTotalPages(doc.numPages)
+        setCurrentPage(1)
+        // New document: reset per-page render bookkeeping
+        renderedScale.current.clear()
+      } catch (err) {
+        if (cancelled) return
+        const name = err instanceof Error ? err.name : ''
+        setLoadError(
+          name === 'PasswordException'
+            ? '该 PDF 受密码保护，暂不支持预览'
+            : 'PDF 加载失败，文件可能已损坏'
+        )
+      }
     }
     load()
     return () => { cancelled = true }
@@ -211,6 +223,25 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
       // Mark rendered ONLY on success — a cancelled task must not fake a
       // completed render (the next observer pass would skip re-rendering).
       renderedScale.current.set(num, renderScale)
+
+      // Transparent text layer on top of the canvas → select/copy/search in
+      // the browser. --total-scale-factor drives the official .textLayer CSS
+      // (font sizes are calc'd from it); the viewer's own geometry comes from
+      // the placeholder's explicit pixel size + inset:0.
+      container.style.setProperty('--total-scale-factor', String(renderScale))
+      const textLayerDiv = document.createElement('div')
+      textLayerDiv.className = 'textLayer'
+      container.appendChild(textLayerDiv)
+      try {
+        const textLayer = new pdfjsLib.TextLayer({
+          textContentSource: await page.getTextContent(),
+          container: textLayerDiv,
+          viewport: page.getViewport({ scale: renderScale }),
+        })
+        await textLayer.render()
+      } catch {
+        // Best-effort: a missing text layer only costs select/copy, not the page
+      }
     } catch {
       // Render was cancelled
     } finally {
@@ -288,7 +319,7 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
         key={num}
         data-page={num}
         ref={(el) => { if (el) pageRefs.current.set(num, el) }}
-        className="bg-white shadow-[0_2px_8px_rgba(0,0,0,0.15)]"
+        className="relative bg-white shadow-[0_2px_8px_rgba(0,0,0,0.15)]"
         style={{ minHeight: '400px' }}
       />
     ))
@@ -296,6 +327,30 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
 
   const zoomIn = () => setUserZoom((z) => Math.min(4, z + 0.25))
   const zoomOut = () => setUserZoom((z) => Math.max(0.5, z - 0.25))
+
+  // Page jump input — mirrors currentPage while scrolling, jumps on Enter
+  const [pageInput, setPageInput] = useState('1')
+  useEffect(() => { setPageInput(String(currentPage)) }, [currentPage])
+  const jumpToPage = () => {
+    const n = Number.parseInt(pageInput, 10)
+    if (!Number.isFinite(n)) {
+      setPageInput(String(currentPage))
+      return
+    }
+    const clamped = Math.min(Math.max(1, n), totalPages)
+    setPageInput(String(clamped))
+    pageRefs.current.get(clamped)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-6">
+        <div className="text-center text-error bg-error/5 rounded-lg border border-error/10 p-6">
+          {loadError}
+        </div>
+      </div>
+    )
+  }
 
   return (
     // min-h-0: without it the flex item's automatic min-height (content size)
@@ -320,9 +375,18 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
           <ZoomIn className="w-4 h-4" />
         </button>
         <div className="w-px h-4 bg-border mx-1" />
-        <span className="text-sm text-text-secondary tabular-nums">
-          {currentPage} / {totalPages}
-        </span>
+        <div className="flex items-center gap-1 text-sm text-text-secondary tabular-nums">
+          <input
+            value={pageInput}
+            onChange={(e) => setPageInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') jumpToPage() }}
+            onBlur={() => setPageInput(String(currentPage))}
+            onFocus={(e) => e.target.select()}
+            aria-label="跳转到页码"
+            className="w-10 rounded border border-border bg-transparent px-1 py-0.5 text-center text-sm text-text outline-none focus:border-primary"
+          />
+          <span>/ {totalPages}</span>
+        </div>
       </div>
 
       {/* Scrollable page container */}
