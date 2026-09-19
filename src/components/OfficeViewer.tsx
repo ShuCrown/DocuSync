@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx'
 import JSZip from 'jszip'
 import { Loader2 } from 'lucide-react'
 import { ImagePreviewModal } from './ImagePreviewModal'
+import { parseXlsxCellStyles, type XlsxCellStyle } from '../utils/xlsxStyles'
 
 interface OfficeViewerProps {
   file: File
@@ -22,6 +23,24 @@ function isLegacyOfficeBinary(buffer: ArrayBuffer): boolean {
 }
 
 const LEGACY_HINT = '暂不支持旧版二进制格式，请先用 Word/PowerPoint 另存为 .docx/.pptx 后再上传'
+
+/** Sheets with more rows than this render through the virtualized window. */
+const VIRTUALIZE_THRESHOLD = 150
+/** Estimated unmeasured row height (content px); measured heights win. */
+const ROW_HEIGHT_EST = 30
+/** Extra rows rendered above/below the visible window. */
+const OVERSCAN = 12
+
+/** Per-sheet windowing state, keyed in a ref so scroll events never re-render
+ *  through React more than once per frame. */
+interface VirtState {
+  /** measured content heights (excl. border) per absolute row index */
+  heights: number[]
+  /** rows currently mounted (absolute indices) */
+  rowSet: Set<number>
+  start: number
+  end: number
+}
 
 /**
  * Extract per-slide text from a .pptx (OOXML) with JSZip: slides live at
@@ -172,11 +191,14 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
   const [sheetNames, setSheetNames] = useState<string[]>([])
   const [sheetMerges, setSheetMerges] = useState<{ s: { r: number; c: number }; e: { r: number; c: number } }[][]>([])
   const [sheetCols, setSheetCols] = useState<XLSX.ColInfo[][]>([])
+  const [sheetStyles, setSheetStyles] = useState<Map<string, XlsxCellStyle>[]>([])
   const [activeSheet, setActiveSheet] = useState(0)
   const [pptSlides, setPptSlides] = useState<string[][]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [previewSrc, setPreviewSrc] = useState<string | null>(null)
+  /** Word display mode: continuous flow vs. document page layout */
+  const [paged, setPaged] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const latestOnTextExtractedRef = useRef(onTextExtracted)
 
@@ -208,10 +230,14 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
           type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         })
 
+        // Re-render from scratch on mode toggle
+        el.innerHTML = ''
+
         // Wrap renderAsync with a 30s timeout to prevent infinite hang
         const renderPromise = renderAsync(blob, el, undefined, {
-          breakPages: false,
-          ignoreWidth: true,
+          // Paged mode: keep the document's page size/margins (ignoreWidth off)
+          breakPages: paged,
+          ignoreWidth: !paged,
           ignoreLastRenderedPageBreak: true,
           renderHeaders: true,
           renderFooters: true,
@@ -267,7 +293,7 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
     }
     process()
     return () => { cancelled = true }
-  }, [file, category, cacheKey, handleImageClick])
+  }, [file, category, cacheKey, handleImageClick, paged])
 
   // Excel / PowerPoint
   useEffect(() => {
@@ -284,6 +310,9 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
 
         if (category === 'excel') {
           const workbook = XLSX.read(buffer, { type: 'array', cellStyles: true })
+          // SheetJS CE drops cell styling — recover bold/color/fill/alignment
+          // from styles.xml (see utils/xlsxStyles).
+          const cellStyles = await parseXlsxCellStyles(buffer)
           const names = workbook.SheetNames
           const sheets: string[][][] = []
           const merges: { s: { r: number; c: number }; e: { r: number; c: number } }[][] = []
@@ -318,6 +347,7 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
             setTableData(sheets)
             setSheetMerges(merges)
             setSheetCols(cols)
+            setSheetStyles(cellStyles)
             setActiveSheet(0)
             textCache.set(documentKey, extractedText)
             latestOnTextExtractedRef.current?.(extractedText)
@@ -381,12 +411,158 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
     return () => ro.disconnect()
   }, [category, loading])
 
+  // --- Large-sheet row virtualization --------------------------------------
+  // Only rows inside (or merged into) the scroll window are mounted; the rest
+  // collapse into top/bottom spacer rows. Scroll/measure corrections flow
+  // through a ref + rAF instead of per-event React state.
+  const rowCount = category === 'excel' ? (tableData[activeSheet]?.length ?? 0) : 0
+  const virtualize = rowCount > VIRTUALIZE_THRESHOLD
+  const [window_, setWindow_] = useState({ start: 0, end: 0, topPad: 0, bottomPad: 0 })
+  const virtRef = useRef<VirtState>({ heights: [], rowSet: new Set(), start: -1, end: -1 })
+  const tableRef = useRef<HTMLTableElement>(null)
+  const virtRaf = useRef(0)
+
+  // Reset measurements when the sheet/file changes
+  useEffect(() => {
+    virtRef.current = { heights: [], rowSet: new Set(), start: -1, end: -1 }
+  }, [tableData, activeSheet])
+
+  const updateWindow = useCallback(() => {
+    if (!virtualize) return
+    const table = tableRef.current
+    if (!table) return
+    const scroller = table.closest<HTMLElement>('.overflow-auto')
+    if (!scroller) return
+
+    const st = virtRef.current
+    const { heights } = st
+    const hAt = (r: number) => heights[r] ?? ROW_HEIGHT_EST
+    // Prefix-sum walk from 0 is O(rows) ≈ 50µs at 10k rows — cheaper than
+    // maintaining a Fenwick tree for this size.
+    const topAt = (r: number) => {
+      let y = 0
+      for (let i = 0; i < r; i++) y += hAt(i) + 1 // +1: each row's border-bottom
+      return y
+    }
+    const scrollTop = scroller.scrollTop
+    const viewBottom = scrollTop + scroller.clientHeight
+
+    // Header offset: table border-top + thead row (measured live)
+    const theadH = (table.tHead?.offsetHeight ?? 0) + 16
+    let r = 0
+    while (r < rowCount && topAt(r + 1) + theadH < scrollTop) r++
+    const firstVisible = r
+    while (r < rowCount && topAt(r) + theadH < viewBottom) r++
+    const lastVisible = Math.min(rowCount - 1, r + 1)
+
+    // Expand to cover merges whose anchor lies above the window
+    const merges = sheetMerges[activeSheet] ?? []
+    let start = Math.max(0, firstVisible - OVERSCAN)
+    for (const m of merges) {
+      if (m.e.r >= start && m.s.r < start) start = m.s.r
+    }
+    const end = Math.min(rowCount, lastVisible + OVERSCAN)
+
+    // Fresh spacer heights for the candidate window (latest measurements)
+    let topSpacer = 0
+    for (let i = 0; i < start; i++) topSpacer += hAt(i) + 1
+    let bottomSpacer = 0
+    for (let i = end; i < rowCount; i++) bottomSpacer += hAt(i) + 1
+
+    // Correction: if the mounted window's anchor drifted from its assumed
+    // offset (estimates were wrong), nudge scrollTop so content stays put.
+    const anchorRow = table.querySelector<HTMLElement>('tr[data-vr]')
+    if (anchorRow && st.start > 0 && st.start === start) {
+      const firstVr = Number(anchorRow.dataset.vr)
+      if (firstVr === st.start) {
+        const rowY = anchorRow.getBoundingClientRect().top
+          - scroller.getBoundingClientRect().top
+          + scroller.scrollTop
+        const assumedY = theadH + topSpacer
+        const delta = rowY - assumedY
+        if (delta !== 0) scroller.scrollTop += delta
+      }
+    }
+
+    if (
+      start !== st.start || end !== st.end
+      || topSpacer !== window_.topPad || bottomSpacer !== window_.bottomPad
+    ) {
+      st.start = start
+      st.end = end
+      st.rowSet = new Set()
+      for (let i = start; i < end; i++) st.rowSet.add(i)
+      setWindow_({ start, end, topPad: topSpacer, bottomPad: bottomSpacer })
+    }
+  }, [virtualize, rowCount, activeSheet, sheetMerges, window_.topPad, window_.bottomPad])
+
+  const scheduleWindow = useCallback(() => {
+    if (virtRaf.current) return
+    virtRaf.current = requestAnimationFrame(() => {
+      virtRaf.current = 0
+      updateWindow()
+    })
+  }, [updateWindow])
+
+  // Scroll listener + initial window (layout effect: compute before paint so
+  // a freshly opened large sheet never flashes an empty window)
+  useLayoutEffect(() => {
+    if (!virtualize) return
+    const table = tableRef.current
+    const scroller = table?.closest<HTMLElement>('.overflow-auto')
+    if (!scroller) return
+    updateWindow()
+    scroller.addEventListener('scroll', scheduleWindow, { passive: true })
+    return () => scroller.removeEventListener('scroll', scheduleWindow)
+  }, [virtualize, updateWindow, scheduleWindow, paneHeight])
+
+  // Measure mounted row heights after each window render
+  useEffect(() => {
+    if (!virtualize) return
+    const table = tableRef.current
+    if (!table) return
+    const st = virtRef.current
+    let changed = false
+    table.querySelectorAll<HTMLElement>('tr[data-vr]').forEach((tr) => {
+      const r = Number(tr.dataset.vr)
+      // offsetHeight includes the 1px border-bottom; store content height
+      const h = tr.offsetHeight - 1
+      if (h > 0 && st.heights[r] !== h) {
+        st.heights[r] = h
+        changed = true
+      }
+    })
+    if (changed) scheduleWindow()
+  })
+
+  useEffect(() => () => { if (virtRaf.current) cancelAnimationFrame(virtRaf.current) }, [])
+
   // Word: always keep container in DOM so ref is available for renderAsync
   if (category === 'word') {
     return (
       <>
         <div className="relative office-doc bg-surface-card overflow-y-auto flex-1">
-          <div ref={containerRef} className="docx-render-container py-4 px-10" />
+          {/* 连续/分页 toggle — sticky so it stays reachable while scrolling;
+              negative bottom margin cancels its flow height */}
+          <div className="sticky top-2 z-20 -mb-9 flex h-9 justify-end pr-3 pointer-events-none">
+            <div className="pointer-events-auto flex items-center rounded-full border border-border bg-surface-card/95 p-0.5 text-xs shadow-sm">
+              {(['连续', '分页'] as const).map((label) => {
+                const active = (label === '分页') === paged
+                return (
+                  <button
+                    key={label}
+                    onClick={() => setPaged(label === '分页')}
+                    className={`rounded-full px-3 py-1 transition-colors ${
+                      active ? 'bg-primary text-white' : 'text-text-secondary hover:text-text'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div ref={containerRef} className={`docx-render-container py-4 px-10 ${paged ? 'docx-paged' : ''}`} />
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center p-12 text-text-secondary bg-surface-card/80">
               <Loader2 className="w-6 h-6 animate-spin mr-2" />
@@ -448,6 +624,7 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
   const activeData = tableData[activeSheet] ?? []
   const activeMerges = sheetMerges[activeSheet] ?? []
   const activeCols = sheetCols[activeSheet] ?? []
+  const activeStyles = sheetStyles[activeSheet]
   const colCount = Math.max(activeCols.length, ...activeData.map((r) => r.length), 0)
 
   // Build skip-set and merge-info for the active sheet
@@ -463,6 +640,11 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
       }
     }
   }
+
+  // Virtualization spacer heights come from the window state (refreshed by
+  // updateWindow with the latest measurements)
+  const topPad = virtualize ? window_.topPad : 0
+  const bottomPad = virtualize ? window_.bottomPad : 0
 
   return (
     <div
@@ -488,7 +670,10 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
               bleeds through the header/row-number column). In separate mode
               each cell paints its own background, so sticky works. Single
               gridlines come from per-cell bottom/right borders. */}
-          <table className="w-full border-[16px_16px_4px_16px] border-transparent text-sm border-separate border-spacing-0">
+          <table
+            ref={tableRef}
+            className="w-full border-[16px_16px_4px_16px] border-transparent text-sm border-separate border-spacing-0"
+          >
             <colgroup>
               <col className="w-10" />
               {Array.from({ length: colCount }, (_, i) => {
@@ -512,8 +697,18 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
               </tr>
             </thead>
             <tbody>
-              {activeData.map((row, rowIdx) => (
-                <tr key={rowIdx}>
+              {virtualize && topPad > 0 && (
+                <tr aria-hidden="true">
+                  <td style={{ height: topPad, padding: 0, border: 0 }} />
+                  {Array.from({ length: colCount }, (_, i) => (
+                    <td key={i} style={{ padding: 0, border: 0 }} />
+                  ))}
+                </tr>
+              )}
+              {activeData.map((row, rowIdx) => {
+                if (virtualize && (rowIdx < window_.start || rowIdx >= window_.end)) return null
+                return (
+                <tr key={rowIdx} data-vr={virtualize ? rowIdx : undefined}>
                   <td className="sticky left-0 z-10 border-l border-b border-r border-border bg-surface-alt px-2 py-1 text-center text-xs text-text-secondary">
                     {rowIdx + 1}
                   </td>
@@ -522,12 +717,20 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
                     const key = `${rowIdx},${colIdx}`
                     if (skipCell.has(key)) return null
                     const mi = mergeInfo.get(key)
+                    const cst = activeStyles?.get(XLSX.utils.encode_cell({ r: rowIdx, c: colIdx }))
                     return (
                       <td
                         key={colIdx}
                         className={`border-b border-r border-border px-3 py-1.5 text-text whitespace-pre-wrap break-words max-w-[360px] ${
                           rowIdx === 0 ? 'bg-surface-alt font-medium' : ''
                         }`}
+                        style={cst ? {
+                          fontWeight: cst.bold ? 600 : undefined,
+                          fontStyle: cst.italic ? 'italic' : undefined,
+                          color: cst.color,
+                          backgroundColor: cst.bg,
+                          textAlign: cst.halign,
+                        } : undefined}
                         rowSpan={mi?.rowSpan}
                         colSpan={mi?.colSpan}
                       >
@@ -536,7 +739,16 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
                     )
                   })}
                 </tr>
-              ))}
+                )
+              })}
+              {virtualize && bottomPad > 0 && (
+                <tr aria-hidden="true">
+                  <td style={{ height: bottomPad, padding: 0, border: 0 }} />
+                  {Array.from({ length: colCount }, (_, i) => (
+                    <td key={i} style={{ padding: 0, border: 0 }} />
+                  ))}
+                </tr>
+              )}
             </tbody>
           </table>
           </div>

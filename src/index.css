@@ -358,7 +358,7 @@ body {
   align-items: stretch !important;
 }
 
-.docx-render-container .docx-wrapper > section.docx {
+.docx-render-container:not(.docx-paged) .docx-wrapper > section.docx {
   margin-bottom: 0 !important;
   box-shadow: none !important;
   background: transparent !important;
@@ -371,8 +371,24 @@ body {
   max-width: 100% !important;
 }
 
+/* Paged mode (分页): the flattening overrides are scoped away by
+   :not(.docx-paged), so the document's own page geometry (inline width,
+   min-height, page-margin paddings from docx-preview) takes effect and each
+   section renders as a paper sheet. Only cosmetic sheet styling lives here —
+   no width/padding declarations, or !important would beat the inline page
+   metrics. */
+.docx-render-container.docx-paged .docx-wrapper {
+  align-items: center !important;
+}
+
+.docx-render-container.docx-paged section.docx {
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  margin: 0 auto 16px;
+}
+
 /* Override inline pageMargins padding set by createPageElement */
-.docx-render-container section.docx {
+.docx-render-container:not(.docx-paged) section.docx {
   padding-left: 0 !important;
   padding-right: 0 !important;
   width: 100% !important;
@@ -380,16 +396,22 @@ body {
   min-width: 0 !important;
 }
 
-.docx-render-container .docx {
+.docx-render-container:not(.docx-paged) .docx {
   overflow-wrap: anywhere;
   word-break: break-word;
   width: 100% !important;
   max-width: 100% !important;
 }
 
+/* Paged sections still want soft wrapping inside the document page width */
+.docx-render-container.docx-paged .docx {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 /* Override docx-preview's fixed page-width sections so content adapts to pane width */
-.docx-render-container section,
-.docx-render-container section.docx {
+.docx-render-container:not(.docx-paged) section,
+.docx-render-container:not(.docx-paged) section.docx {
   width: 100% !important;
   max-width: 100% !important;
   min-width: 0 !important;

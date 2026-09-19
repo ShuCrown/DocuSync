@@ -1,7 +1,28 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
-import { ZoomIn, ZoomOut } from 'lucide-react'
+import { ListTree, ZoomIn, ZoomOut } from 'lucide-react'
 import 'pdfjs-dist/web/pdf_viewer.css'
+
+interface OutlineItem {
+  title: string
+  page: number | null
+  items: OutlineItem[]
+}
+
+/** Resolve an outline entry's dest (named or explicit) to a 1-based page. */
+async function resolveDestPage(pdf: pdfjsLib.PDFDocumentProxy, dest: unknown): Promise<number | null> {
+  try {
+    let arr = dest
+    if (typeof dest === 'string') arr = await pdf.getDestination(dest)
+    if (!Array.isArray(arr) || arr.length === 0) return null
+    const ref = arr[0]
+    if (typeof ref === 'number') return ref + 1
+    if (ref && typeof ref === 'object') return (await pdf.getPageIndex(ref as Parameters<typeof pdf.getPageIndex>[0])) + 1
+    return null
+  } catch {
+    return null
+  }
+}
 
 // Set worker source
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -16,10 +37,14 @@ interface PdfViewerProps {
 
 export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const toolbarRef = useRef<HTMLDivElement>(null)
   const latestOnTextExtractedRef = useRef(onTextExtracted)
   const [pdf, setPdf] = useState<pdfjsLib.PDFDocumentProxy | null>(null)
   const [totalPages, setTotalPages] = useState(0)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [outline, setOutline] = useState<OutlineItem[]>([])
+  const [showOutline, setShowOutline] = useState(false)
   /** User zoom relative to fit-width (1 = page fills the pane width) */
   const [userZoom, setUserZoom] = useState(1)
   const [currentPage, setCurrentPage] = useState(1)
@@ -71,6 +96,35 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
     load()
     return () => { cancelled = true }
   }, [url])
+
+  // Load outline (bookmarks) once the document is ready
+  useEffect(() => {
+    if (!pdf) return
+    let cancelled = false
+    const load = async () => {
+      try {
+        const raw = await pdf.getOutline()
+        if (!raw || raw.length === 0 || cancelled) return
+        const walk = async (items: typeof raw): Promise<OutlineItem[]> =>
+          Promise.all(
+            items.map(async (it) => ({
+              title: it.title,
+              page: await resolveDestPage(pdf, it.dest),
+              items: await walk(it.items ?? []),
+            }))
+          )
+        const tree = await walk(raw)
+        if (!cancelled) {
+          setOutline(tree)
+          setShowOutline(true)
+        }
+      } catch {
+        // Malformed outline — preview works without it
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [pdf])
 
   // Pre-measure page sizes (scale 1) so lazy rendering keeps an accurate
   // scrollbar before pages are actually rendered.
@@ -249,6 +303,14 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
     }
   }, [pdf, renderScale])
 
+  /** Effective scrollport: in the app shell the outer .doc-zoom-scroller
+   *  scrolls (the inner .pdf-scroller is stretched to full content height —
+   *  using IT as observer root would intersect every page and defeat lazy
+   *  rendering); standalone, the inner scroller is the scrollport. */
+  const getScrollRoot = useCallback((): HTMLElement | null => (
+    rootRef.current?.closest<HTMLElement>('.doc-zoom-scroller') ?? containerRef.current
+  ), [])
+
   // Lazy render: only pages in/near the viewport get a canvas. Re-created when
   // renderScale changes (renderPage identity changes), and re-observing fires
   // initial intersection callbacks so visible pages re-render at the new scale.
@@ -277,7 +339,7 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
         }
       },
       {
-        root: containerRef.current,
+        root: getScrollRoot(),
         rootMargin: '1000px 0px 1000px 0px',
         threshold: 0,
       }
@@ -285,7 +347,7 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
 
     pageRefs.current.forEach((el) => observer.observe(el))
     return () => observer.disconnect()
-  }, [totalPages, renderPage])
+  }, [totalPages, renderPage, getScrollRoot])
 
   // Track current page via IntersectionObserver
   useEffect(() => {
@@ -301,7 +363,7 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
         }
       },
       {
-        root: containerRef.current,
+        root: getScrollRoot(),
         rootMargin: '-40% 0px -40% 0px',
         threshold: 0,
       }
@@ -309,7 +371,28 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
 
     pageRefs.current.forEach((el) => observer.observe(el))
     return () => observer.disconnect()
-  }, [totalPages])
+  }, [totalPages, getScrollRoot])
+
+  // Outline sidebar height: in the app shell the outer .doc-zoom-scroller is
+  // the scrollport (the inner .pdf-scroller is stretched to content height);
+  // standalone, the inner one is. Cap the sticky sidebar at the scrollport
+  // height minus the toolbar so it stays pinned while pages scroll.
+  const [sidebarMaxH, setSidebarMaxH] = useState<number | null>(null)
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    if (!root || !showOutline) return
+    const outer = root.closest<HTMLElement>('.doc-zoom-scroller')
+    const sc = outer ?? containerRef.current
+    if (!sc) return
+    const update = () => {
+      const toolbarH = toolbarRef.current?.offsetHeight ?? 0
+      setSidebarMaxH(Math.max(120, sc.clientHeight - toolbarH))
+    }
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(sc)
+    return () => ro.disconnect()
+  }, [showOutline, pdf])
 
   // Static page list: memoized so currentPage updates during scrolling (and
   // any state change) skip reconciling hundreds of placeholder divs.
@@ -328,9 +411,17 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
   const zoomIn = () => setUserZoom((z) => Math.min(4, z + 0.25))
   const zoomOut = () => setUserZoom((z) => Math.max(0.5, z - 0.25))
 
-  // Page jump input — mirrors currentPage while scrolling, jumps on Enter
+  // Page jump input — tracks currentPage via render-time derived state
   const [pageInput, setPageInput] = useState('1')
-  useEffect(() => { setPageInput(String(currentPage)) }, [currentPage])
+  const [lastTrackedPage, setLastTrackedPage] = useState(currentPage)
+  if (lastTrackedPage !== currentPage) {
+    setLastTrackedPage(currentPage)
+    setPageInput(String(currentPage))
+  }
+  const scrollToPage = useCallback((n: number) => {
+    const clamped = Math.min(Math.max(1, n), totalPages)
+    pageRefs.current.get(clamped)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [totalPages])
   const jumpToPage = () => {
     const n = Number.parseInt(pageInput, 10)
     if (!Number.isFinite(n)) {
@@ -339,8 +430,25 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
     }
     const clamped = Math.min(Math.max(1, n), totalPages)
     setPageInput(String(clamped))
-    pageRefs.current.get(clamped)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    scrollToPage(clamped)
   }
+
+  // Active outline entry: last item (document order) at/before currentPage
+  const flatOutline = useMemo(() => {
+    const flat: OutlineItem[] = []
+    const walk = (items: OutlineItem[]) => items.forEach((it) => { flat.push(it); walk(it.items) })
+    walk(outline)
+    return flat
+  }, [outline])
+  const activeOutline = useMemo(() => {
+    let best: OutlineItem | null = null
+    for (const it of flatOutline) {
+      if (it.page == null) continue
+      if (it.page <= currentPage) best = it
+      else break
+    }
+    return best
+  }, [flatOutline, currentPage])
 
   if (loadError) {
     return (
@@ -358,9 +466,22 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
     // wherever the viewer stands alone (share preview), killing vertical
     // scrolling. Inside the app's zoom layer the CSS there forces the scroller
     // to height:auto, so this is a no-op there.
-    <div className="flex flex-col flex-1 min-h-0">
+    <div ref={rootRef} className="flex flex-col flex-1 min-h-0">
       {/* Toolbar */}
-      <div className="flex items-center justify-center gap-3 py-2 px-4 bg-surface-card border-b border-border shrink-0">
+      <div ref={toolbarRef} className="flex items-center justify-center gap-3 py-2 px-4 bg-surface-card border-b border-border shrink-0">
+        {outline.length > 0 && (
+          <>
+            <button
+              onClick={() => setShowOutline((v) => !v)}
+              title="目录导航"
+              aria-label="目录导航"
+              className={`p-1.5 transition-colors ${showOutline ? 'text-primary' : 'text-text-secondary hover:text-primary'}`}
+            >
+              <ListTree className="w-4 h-4" />
+            </button>
+            <div className="w-px h-4 bg-border mx-1" />
+          </>
+        )}
         <button onClick={zoomOut} className="p-1.5 hover:text-primary transition-colors text-text-secondary">
           <ZoomOut className="w-4 h-4" />
         </button>
@@ -389,15 +510,46 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
         </div>
       </div>
 
-      {/* Scrollable page container */}
-      <div
-        ref={containerRef}
-        className="pdf-scroller flex-1 overflow-auto bg-[#504e49]"
-      >
-        <div className="flex flex-col items-center py-4 gap-2">
-          {pageList}
+      {/* Body: optional outline sidebar + scrollable page container */}
+      <div className="flex flex-1 min-h-0">
+        {showOutline && outline.length > 0 && (
+          <div
+            className="pdf-outline w-52 shrink-0 self-start sticky top-0 overflow-y-auto border-r border-border bg-surface-card py-2"
+            style={sidebarMaxH != null ? { maxHeight: sidebarMaxH } : undefined}
+          >
+            {renderOutlineItems(outline, 0)}
+          </div>
+        )}
+        <div
+          ref={containerRef}
+          className="pdf-scroller flex-1 overflow-auto bg-[#504e49]"
+        >
+          <div className="flex flex-col items-center py-4 gap-2">
+            {pageList}
+          </div>
         </div>
       </div>
     </div>
   )
+
+  function renderOutlineItems(items: OutlineItem[], depth: number) {
+    return items.map((item, i) => (
+      <div key={`${depth}-${i}-${item.title}`}>
+        <button
+          onClick={() => item.page != null && scrollToPage(item.page)}
+          disabled={item.page == null}
+          style={{ paddingLeft: `${12 + depth * 14}px` }}
+          className={`w-full truncate py-1.5 pr-3 text-left text-[13px] transition-colors ${
+            activeOutline === item
+              ? 'bg-primary/10 font-medium text-primary'
+              : 'text-text-secondary hover:bg-surface-alt hover:text-text'
+          } ${item.page == null ? 'opacity-50' : ''}`}
+          title={item.title}
+        >
+          {item.title}
+        </button>
+        {item.items.length > 0 && renderOutlineItems(item.items, depth + 1)}
+      </div>
+    ))
+  }
 }
