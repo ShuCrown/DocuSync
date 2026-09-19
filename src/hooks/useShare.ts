@@ -1,6 +1,18 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import * as api from '../lib/api'
 import type { ShareRecord } from '../lib/api'
+
+export function isShareExpired(s: ShareRecord, now = Math.floor(Date.now() / 1000)): boolean {
+  return s.expires_at <= now
+}
+
+/** Active shares first (original order), expired ones sink to the back. */
+function sortExpiredLast(list: ShareRecord[]): ShareRecord[] {
+  const active: ShareRecord[] = []
+  const expired: ShareRecord[] = []
+  for (const s of list) (isShareExpired(s) ? expired : active).push(s)
+  return [...active, ...expired]
+}
 
 export function useShare() {
   const [shares, setShares] = useState<ShareRecord[]>([])
@@ -11,7 +23,7 @@ export function useShare() {
     try {
       setError(null)
       const list = await api.listShares(docId)
-      setShares(list)
+      setShares(sortExpiredLast(list))
     } catch {
       setError('加载分享列表失败')
     }
@@ -22,7 +34,7 @@ export function useShare() {
     setError(null)
     try {
       const record = await api.createShare(docId, expiresIn)
-      setShares((prev) => [record, ...prev])
+      setShares((prev) => sortExpiredLast([record, ...prev]))
       const url = `${window.location.origin}/share/${record.id}`
       return url
     } catch {
@@ -45,5 +57,20 @@ export function useShare() {
     }
   }, [])
 
-  return { shares, loading, error, loadShares, createShare, revokeShare }
+  const revokeExpired = useCallback(async () => {
+    const targets = shares.filter(isShareExpired)
+    if (targets.length === 0) return true
+    setError(null)
+    const results = await Promise.allSettled(targets.map((s) => api.deleteShare(s.id)))
+    const failedIds = new Set(
+      targets.filter((_, i) => results[i].status === 'rejected').map((s) => s.id),
+    )
+    if (failedIds.size > 0) setError('部分失效链接清理失败，请重试')
+    setShares((prev) => prev.filter((s) => !failedIds.has(s.id)))
+    return failedIds.size === 0
+  }, [shares])
+
+  const expiredCount = useMemo(() => shares.filter(isShareExpired).length, [shares])
+
+  return { shares, loading, error, expiredCount, loadShares, createShare, revokeShare, revokeExpired }
 }

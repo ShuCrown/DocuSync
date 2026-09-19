@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { X, Link, Copy, Check, Loader2, Trash2, Clock, Eye, Plus, Info } from 'lucide-react'
+import { X, Link, Copy, Check, Loader2, Trash2, Clock, Eye, Plus, Info, Eraser } from 'lucide-react'
 import { useShare } from '../hooks/useShare'
 import type { ShareRecord } from '../lib/api'
 
@@ -19,10 +19,11 @@ const EXPIRY_OPTIONS = [
 ]
 
 export function ShareDialog({ open, onClose, docId, fileName }: ShareDialogProps) {
-  const { shares, loading, error, loadShares, createShare, revokeShare } = useShare()
+  const { shares, loading, error, expiredCount, loadShares, createShare, revokeShare, revokeExpired } = useShare()
   const [expiresIn, setExpiresIn] = useState('24h')
   const [showCreate, setShowCreate] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [cleaning, setCleaning] = useState(false)
 
   // Reset state when opened — intentional "reset on open" pattern, fires once
   // per open (deps [open, docId]), not per render.
@@ -67,6 +68,15 @@ export function ShareDialog({ open, onClose, docId, fileName }: ShareDialogProps
     await revokeShare(shareId)
   }, [revokeShare])
 
+  const handleCleanup = useCallback(async () => {
+    setCleaning(true)
+    try {
+      await revokeExpired()
+    } finally {
+      setCleaning(false)
+    }
+  }, [revokeExpired])
+
   if (!open) return null
 
   return (
@@ -107,7 +117,22 @@ export function ShareDialog({ open, onClose, docId, fileName }: ShareDialogProps
             </div>
           ) : shares.length > 0 ? (
             <div className="space-y-2">
-              <div className="text-xs font-medium text-text-secondary">已创建的链接</div>
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-medium text-text-secondary">已创建的链接</div>
+                {expiredCount > 0 && (
+                  <button
+                    onClick={handleCleanup}
+                    disabled={cleaning}
+                    className="flex items-center gap-1 px-2 py-1 rounded-md text-xs text-text-secondary hover:text-error hover:bg-error/10 transition-colors disabled:opacity-50"
+                    title="撤销所有已过期的链接"
+                  >
+                    {cleaning
+                      ? <Loader2 className="w-3 h-3 animate-spin" />
+                      : <Eraser className="w-3 h-3" />}
+                    清理失效链接（{expiredCount}）
+                  </button>
+                )}
+              </div>
               <div className="max-h-60 space-y-2 overflow-y-auto slim-scrollbar pr-1 -mr-1">
                 {shares.map((s) => (
                   <ShareItem
