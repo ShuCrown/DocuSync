@@ -1,10 +1,12 @@
 <div align="center">
 
-<img src="public/hero.png" width="120" alt="DocuSync">
+<img src="public/icon.png" width="120" alt="DocuSync">
 
 # DocuSync
 
 **一站式文档预览 —— 多标签、分栏对比，PDF / Word / Excel / PPT / Markdown 尽在一处**
+
+[🌐 Web 版](https://docusync.pages.dev) · [⬇️ 下载桌面端](https://github.com/ShuCrown/DocuSync/releases/latest) · [🏠 官网](https://docusync-landing.pages.dev)
 
 </div>
 
@@ -12,19 +14,22 @@
 
 每天我们都要和 PDF、Word、Excel、PPT 这些散落在各处的文档打交道。DocuSync 把它们统一到一个干净的视图里：上传文件即可即时预览，还能多标签打开、分栏对比。无需插件、无需安装、无需账号。
 
-## See it
+## Screenshots
 
-| **PDF** · 全文渲染 + 页面导航 | **Word** · HTML 转换 + 目录支持 | **Excel** · 表格解析 + Sheet 标签 |
-|:---:|:---:|:---:|
-| ![PDF](https://img.shields.io/badge/PDF-ef4444?style=flat-square&logo=adobeacrobatreader&logoColor=white) | ![Word](https://img.shields.io/badge/Word-2b579a?style=flat-square&logo=microsoftword&logoColor=white) | ![Excel](https://img.shields.io/badge/Excel-217346?style=flat-square&logo=microsoftexcel&logoColor=white) |
+| **PDF** · 大纲导航 + 页码跳转 + 文本选择 | **Word** · 分页渲染 + 页面宽度自适应 |
+|:---:|:---:|
+| [![PDF 预览](.github/images/preview-pdf.png)](.github/images/preview-pdf.png) | [![Word 预览](.github/images/preview-word.png)](.github/images/preview-word.png) |
 
-| **PowerPoint** · 幻灯片预览 | **Markdown** · 语法高亮渲染 | **Split View** · 多标签分栏对比 |
-|:---:|:---:|:---:|
-| ![PPT](https://img.shields.io/badge/PPT-b7472a?style=flat-square&logo=microsoftpowerpoint&logoColor=white) | ![Markdown](https://img.shields.io/badge/Markdown-000000?style=flat-square&logo=markdown&logoColor=white) | ![Split](https://img.shields.io/badge/Split_View-1B365D?style=flat-square) |
+| **Excel** · 原样还原 + 冻结行列 + Sheet 标签 | **Split View** · 多标签分栏对比 |
+|:---:|:---:|
+| [![Excel 预览](.github/images/preview-excel.png)](.github/images/preview-excel.png) | [![分栏对比](.github/images/preview-split.png)](.github/images/preview-split.png) |
 
 ## Features
 
 - **多格式预览**：PDF、Word、Excel、PowerPoint、Markdown 一键预览；每种文件类型都有专属图标与品牌色，一眼可辨
+  - **PDF**：pdf.js 全文渲染，大纲（书签）侧栏导航、页码跳转、文本选择/复制、懒加载 + 缩放重排
+  - **Word**：docx-preview 分页渲染，保留原始页边距与页面布局，页面宽度随窗口自适应缩放
+  - **Excel**：还原 styles.xml 单元格样式（加粗/颜色/填充/对齐）与原始列宽，A-Z 字母表头与行号列冻结，大表行虚拟滚动，窄窗口横向滚动不挤压列宽
 - **多标签 + 分栏预览**：每个分栏可同时打开多个标签页；左右/上下分栏，拖动分隔条调整比例、一键交换两侧、切换分栏方向；每个分栏独立滚动与缩放，文档状态在切换标签时完整保留
 - **标签页右键菜单**：关闭当前 / 关闭其他 / 关闭所有
 - **最近查看**：
@@ -49,6 +54,9 @@ npm run tauri:dev
 
 # 部署到 Cloudflare（Worker + Pages）
 npm run deploy
+
+# 部署官网落地页（landing/）
+npm run landing:deploy
 ```
 
 ## Design
@@ -60,7 +68,7 @@ npm run deploy
 | Backend | Cloudflare Worker · Hono |
 | Storage | R2（文件）· D1（元数据） |
 | PDF | pdf.js with web worker |
-| Office | mammoth（Word）· xlsx（Excel）· DOMPurify（XSS 安全） |
+| Office | docx-preview（Word）· xlsx + 自研 styles.xml 解析（Excel）· JSZip（PPT 文本提取） |
 | Markdown | react-markdown · remark-gfm · rehype-highlight |
 | Auth | 设备维度（localStorage），可选邮箱绑定 |
 
