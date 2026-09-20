@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Clock, X, MoreHorizontal, Search } from 'lucide-react'
+import { Clock, X, MoreHorizontal, Search, Loader2 } from 'lucide-react'
 import { getCategoryLabel } from '../utils/fileType'
 import { FileTypeIcon } from '../utils/fileIcon'
 import { formatTime, formatSize } from '../utils/formatTime'
@@ -18,12 +18,17 @@ interface FileHistoryProps {
       search / "更多" picker lists these, so hidden records stay reopenable
       without a separate "我的文件" entry. */
   allDocuments?: FileRecord[]
+  /** An upload/download is in flight — selecting is disabled (see App's
+      homeBusy) so a click can't race the in-flight operation. */
+  disabled?: boolean
+  /** Record currently being restored — shows a spinner in its row. */
+  loadingId?: string | null
 }
 
 /** Max rows shown inline; the rest are reachable via the "more" picker. */
 const MAX_VISIBLE = 8
 
-export function FileHistory({ history, onSelect, onRemove, onClear, onDelete, allDocuments }: FileHistoryProps) {
+export function FileHistory({ history, onSelect, onRemove, onClear, onDelete, allDocuments, disabled, loadingId }: FileHistoryProps) {
   const [pickerOpen, setPickerOpen] = useState(false)
 
   if (history.length === 0) return null
@@ -45,8 +50,9 @@ export function FileHistory({ history, onSelect, onRemove, onClear, onDelete, al
           {/* Search the full history — always available, regardless of count. */}
           <button
             onClick={() => setPickerOpen(true)}
+            disabled={disabled}
             title="查找历史记录"
-            className="p-1 rounded-md text-text-secondary hover:text-text hover:bg-surface-alt/60 transition-colors"
+            className="p-1 rounded-md text-text-secondary hover:text-text hover:bg-surface-alt/60 transition-colors disabled:cursor-not-allowed"
           >
             <Search className="w-3.5 h-3.5" />
           </button>
@@ -59,16 +65,21 @@ export function FileHistory({ history, onSelect, onRemove, onClear, onDelete, al
         </div>
       </div>
 
-      <div className="border border-border rounded-lg bg-surface-card shadow-[0_1px_3px_rgba(0,0,0,0.04)] divide-y divide-border">
+      <div className={`border border-border rounded-lg bg-surface-card shadow-[0_1px_3px_rgba(0,0,0,0.04)] divide-y divide-border transition-opacity ${disabled ? 'opacity-60' : ''}`}>
         {visible.map((record) => (
           <div
             key={record.id}
             className="flex items-center gap-3 px-4 py-3 hover:bg-surface-alt/50 transition-colors group"
           >
-            <FileTypeIcon category={record.category} className="w-5 h-5 shrink-0" />
+            {loadingId === record.id ? (
+              <Loader2 className="w-5 h-5 shrink-0 text-primary animate-spin" />
+            ) : (
+              <FileTypeIcon category={record.category} className="w-5 h-5 shrink-0" />
+            )}
             <button
               onClick={() => onSelect(record)}
-              className="flex-1 min-w-0 text-left"
+              disabled={disabled}
+              className="flex-1 min-w-0 text-left disabled:cursor-not-allowed"
             >
               <p className="text-sm font-medium text-text truncate">{record.name}</p>
               <p className="text-xs text-text-secondary mt-0.5">
@@ -96,8 +107,9 @@ export function FileHistory({ history, onSelect, onRemove, onClear, onDelete, al
         {hasMore && (
           <button
             onClick={() => setPickerOpen(true)}
+            disabled={disabled}
             title="打开可检索的完整列表"
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 text-xs font-medium text-primary hover:bg-primary/5 transition-colors"
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 text-xs font-medium text-primary hover:bg-primary/5 transition-colors disabled:cursor-not-allowed"
           >
             <MoreHorizontal className="w-4 h-4" />
             更多

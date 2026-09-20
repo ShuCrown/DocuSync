@@ -12,6 +12,9 @@
   --color-surface-card: #faf9f5;
   --color-code-bg: #f0eee6;
   --color-border: #e8e6dc;
+  /* Excel gridlines: darker than --color-border so they read clearly on the
+     white sheet (--color-border is nearly invisible there). */
+  --color-grid: #c9c7bb;
   --color-text: #141413;
   --color-text-secondary: #504e49;
   --color-success: #3a7d5c;
@@ -358,25 +361,11 @@ body {
   align-items: stretch !important;
 }
 
-.docx-render-container:not(.docx-paged) .docx-wrapper > section.docx {
-  margin-bottom: 0 !important;
-  box-shadow: none !important;
-  background: transparent !important;
-  /* CRITICAL: without a fixed width, the section (and every child down to
-     images/tables) sizes to its CONTENT width — a fixed-size VML image makes
-     the whole chain fixed, so `width:100%` on the image resolves to itself
-     and images never shrink with the preview. ignoreWidth:true skips the
-     document's page width, so we restore 100% here. */
-  width: 100% !important;
-  max-width: 100% !important;
-}
-
-/* Paged mode (分页): the flattening overrides are scoped away by
-   :not(.docx-paged), so the document's own page geometry (inline width,
+/* Word is always paged: the document's own page geometry (inline width,
    min-height, page-margin paddings from docx-preview) takes effect and each
    section renders as a paper sheet. Only cosmetic sheet styling lives here —
    no width/padding declarations, or !important would beat the inline page
-   metrics. */
+   metrics. fitDocxPages() scales sections down when the pane is narrower. */
 .docx-render-container.docx-paged .docx-wrapper {
   align-items: center !important;
 }
@@ -387,40 +376,10 @@ body {
   margin: 0 auto 16px;
 }
 
-/* Override inline pageMargins padding set by createPageElement */
-.docx-render-container:not(.docx-paged) section.docx {
-  padding-left: 0 !important;
-  padding-right: 0 !important;
-  width: 100% !important;
-  max-width: 100% !important;
-  min-width: 0 !important;
-}
-
-.docx-render-container:not(.docx-paged) .docx {
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  width: 100% !important;
-  max-width: 100% !important;
-}
-
 /* Paged sections still want soft wrapping inside the document page width */
 .docx-render-container.docx-paged .docx {
   overflow-wrap: anywhere;
   word-break: break-word;
-}
-
-/* Override docx-preview's fixed page-width sections so content adapts to pane width */
-.docx-render-container:not(.docx-paged) section,
-.docx-render-container:not(.docx-paged) section.docx {
-  width: 100% !important;
-  max-width: 100% !important;
-  min-width: 0 !important;
-  box-sizing: border-box;
-  padding: 0;
-  /* Remove white page background and floating shadow */
-  background: transparent !important;
-  box-shadow: none !important;
-  margin-bottom: 0 !important;
 }
 
 /* Restore list styles that Tailwind preflight removes */

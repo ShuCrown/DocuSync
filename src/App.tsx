@@ -242,13 +242,21 @@ export default function App() {
     addHistory(file, 'unknown')
   }, [handleFile, addHistory])
 
+  // One file operation at a time on the home page: the dropzone only spins
+  // for uploads, so without this guard a history click (or a second drop)
+  // fired mid-upload races it — both call setUploadedFile and BOTH files end
+  // up opening as tabs, last finisher on top.
+  const homeBusy = uploading || downloading
+  const [historyLoadingId, setHistoryLoadingId] = useState<string | null>(null)
+
   const handleFileWithHistory = useCallback(async (file: File) => {
+    if (homeBusy) return
     if (isDuplicate(file.name)) {
       setPendingDuplicate(file)
       return
     }
     await proceedUpload(file)
-  }, [isDuplicate, proceedUpload])
+  }, [homeBusy, isDuplicate, proceedUpload])
 
   // Close all tabs / leave split tree — back to the home page.
   const handleClear = useCallback(() => {
@@ -256,9 +264,15 @@ export default function App() {
   }, [closeAll])
 
   const handleHistorySelect = useCallback(async (record: FileRecord) => {
-    await restoreFromRecord(record)
-    markOpened(record.id)
-  }, [restoreFromRecord, markOpened])
+    if (uploading || downloading) return
+    setHistoryLoadingId(record.id)
+    try {
+      await restoreFromRecord(record)
+      markOpened(record.id)
+    } finally {
+      setHistoryLoadingId(null)
+    }
+  }, [restoreFromRecord, markOpened, uploading, downloading])
 
   const handleAccountOpen = useCallback(() => {
     setAccountOpen(true)
@@ -395,7 +409,7 @@ export default function App() {
               <FileUpload
                 onFile={handleFileWithHistory}
                 currentFile={null}
-                uploading={uploading}
+                uploading={homeBusy}
                 error={uploadError}
               />
               <FileHistory
@@ -405,6 +419,8 @@ export default function App() {
                 onRemove={removeHistory}
                 onClear={clearHistory}
                 onDelete={deleteDocument}
+                disabled={homeBusy}
+                loadingId={historyLoadingId}
               />
             </div>
           </div>
@@ -479,13 +495,17 @@ export default function App() {
             {mainContent}
           </div>
 
-          {/* Download loading overlay */}
-          {downloading && (
+          {/* File operation loading overlay — upload (indeterminate) and
+              history download (with progress) share the same full-screen
+              loading so home-page picks get the same feedback either way. */}
+          {(downloading || uploading) && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
               <div className="bg-surface-card rounded-xl p-6 shadow-xl flex flex-col items-center gap-3 min-w-[240px]">
                 <Loader2 className="w-8 h-8 text-primary animate-spin" />
-                <div className="text-sm text-text font-medium">加载中</div>
-                {downloadProgress !== null && (
+                <div className="text-sm text-text font-medium">
+                  {uploading ? '正在上传' : '加载中'}
+                </div>
+                {downloading && downloadProgress !== null && (
                   <div className="w-full">
                     <div className="h-1.5 bg-surface-alt rounded-full overflow-hidden">
                       <div

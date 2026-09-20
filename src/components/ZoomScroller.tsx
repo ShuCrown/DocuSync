@@ -30,7 +30,9 @@ interface ZoomScrollerProps {
 export const ZoomScroller = forwardRef<HTMLDivElement, ZoomScrollerProps>(
   ({ docZoom, children }, ref) => {
     const scrollerRef = useRef<HTMLDivElement>(null)
+    const layerRef = useRef<HTMLDivElement>(null)
     const [viewportH, setViewportH] = useState(0)
+    const [layerContentH, setLayerContentH] = useState(0)
 
     // Merge the forwarded ref (used by useScrollPosition) with our own, so we
     // can observe the scroller's viewport height.
@@ -53,12 +55,37 @@ export const ZoomScroller = forwardRef<HTMLDivElement, ZoomScrollerProps>(
       return () => ro.disconnect()
     }, [])
 
+    // Track the layer's untransformed content height for the margin
+    // compensation below (margins never feed back into offsetHeight, so this
+    // observer can't loop).
+    useLayoutEffect(() => {
+      const el = layerRef.current
+      if (!el) return
+      const update = () => setLayerContentH(el.offsetHeight)
+      update()
+      const ro = new ResizeObserver(update)
+      ro.observe(el)
+      return () => ro.disconnect()
+    }, [])
+
     return (
       <div ref={setRefs} className="doc-zoom-scroller flex-1 min-h-0 overflow-auto">
         <div
+          ref={layerRef}
           className="doc-zoom-layer"
           style={{
             width: `calc(100% / ${docZoom})`,
+            // Chromium unions the UNTRANSFORMED layout box with the scaled
+            // visual box when computing the scroller's overflow. At docZoom<1
+            // the layout box (100%/zoom wide) is bigger than what you see, so
+            // phantom scrollbars let you scroll far past the content — and the
+            // phantom vertical range unpins bottom-anchored UI (excel sheet
+            // tabs). Pulling the margins in by exactly the overshoot shrinks
+            // the layout contribution to the visual box. (At docZoom>1 the
+            // positive margin only extends the layout box up to the already-
+            // larger visual box — a no-op for the union.)
+            marginRight: `calc(100% - 100% / ${docZoom})`,
+            marginBottom: layerContentH > 0 ? `${layerContentH * (docZoom - 1)}px` : undefined,
             minHeight: viewportH > 0 ? `${viewportH / docZoom}px` : undefined,
             display: 'flex',
             flexDirection: 'column',

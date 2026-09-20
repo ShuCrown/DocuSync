@@ -159,6 +159,21 @@ function normalizeDocxImages(container: HTMLElement, onImageClick?: (src: string
   }
 }
 
+/** Paged mode: scale each rendered page (section.docx) down to the available
+ *  container width so narrow panes never get a horizontal scrollbar. The
+ *  legacy `zoom` property (not a transform) participates in layout, so the
+ *  scaled page reflows instead of overflowing. Pages are never scaled UP —
+ *  wide panes keep the document's physical page size, centered. */
+function fitDocxPages(container: HTMLElement) {
+  const avail = container.clientWidth - 80 // px-10 gutter
+  if (avail <= 0) return
+  container.querySelectorAll<HTMLElement>('section.docx').forEach((sec) => {
+    sec.style.removeProperty('zoom')
+    const w = sec.offsetWidth
+    if (w > avail) sec.style.setProperty('zoom', String(avail / w))
+  })
+}
+
 /**
  * Force the engine to recompute layout & scrollable overflow AFTER docx-preview
  * finished inserting its DOM. docx-preview renders asynchronously (batches of
@@ -197,8 +212,6 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [previewSrc, setPreviewSrc] = useState<string | null>(null)
-  /** Word display mode: continuous flow vs. document page layout */
-  const [paged, setPaged] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const latestOnTextExtractedRef = useRef(onTextExtracted)
 
@@ -230,14 +243,15 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
           type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         })
 
-        // Re-render from scratch on mode toggle
+        // Clear the previous document before re-rendering
         el.innerHTML = ''
 
         // Wrap renderAsync with a 30s timeout to prevent infinite hang
         const renderPromise = renderAsync(blob, el, undefined, {
-          // Paged mode: keep the document's page size/margins (ignoreWidth off)
-          breakPages: paged,
-          ignoreWidth: !paged,
+          // Always paged: keep the document's page size/margins; fitDocxPages
+          // scales pages down to fit narrow panes.
+          breakPages: true,
+          ignoreWidth: false,
           ignoreLastRenderedPageBreak: true,
           renderHeaders: true,
           renderFooters: true,
@@ -257,8 +271,10 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
         // range while the DOM is inserted asynchronously — see forceScrollReflow).
         requestAnimationFrame(() => {
           normalizeDocxImages(el, handleImageClick)
+          fitDocxPages(el)
           requestAnimationFrame(() => {
             normalizeDocxImages(el, handleImageClick)
+            fitDocxPages(el)
             forceScrollReflow(el)
             requestAnimationFrame(() => forceScrollReflow(el))
           })
@@ -293,7 +309,18 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
     }
     process()
     return () => { cancelled = true }
-  }, [file, category, cacheKey, handleImageClick, paged])
+  }, [file, category, cacheKey, handleImageClick])
+
+  // Word: refit paged sections whenever the pane width changes (split drags,
+  // window resizes). The container div itself persists across documents.
+  useEffect(() => {
+    if (category !== 'word') return
+    const el = containerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => fitDocxPages(el))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [category])
 
   // Excel / PowerPoint
   useEffect(() => {
@@ -542,27 +569,7 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
     return (
       <>
         <div className="relative office-doc bg-surface-card overflow-y-auto flex-1">
-          {/* 连续/分页 toggle — sticky so it stays reachable while scrolling;
-              negative bottom margin cancels its flow height */}
-          <div className="sticky top-2 z-20 -mb-9 flex h-9 justify-end pr-3 pointer-events-none">
-            <div className="pointer-events-auto flex items-center rounded-full border border-border bg-surface-card/95 p-0.5 text-xs shadow-sm">
-              {(['连续', '分页'] as const).map((label) => {
-                const active = (label === '分页') === paged
-                return (
-                  <button
-                    key={label}
-                    onClick={() => setPaged(label === '分页')}
-                    className={`rounded-full px-3 py-1 transition-colors ${
-                      active ? 'bg-primary text-white' : 'text-text-secondary hover:text-text'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-          <div ref={containerRef} className={`docx-render-container py-4 px-10 ${paged ? 'docx-paged' : ''}`} />
+          <div ref={containerRef} className="docx-render-container docx-paged py-4 px-10" />
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center p-12 text-text-secondary bg-surface-card/80">
               <Loader2 className="w-6 h-6 animate-spin mr-2" />
@@ -672,7 +679,7 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
               gridlines come from per-cell bottom/right borders. */}
           <table
             ref={tableRef}
-            className="w-full border-[16px_16px_4px_16px] border-transparent text-sm border-separate border-spacing-0"
+            className="border-[16px_16px_4px_16px] border-transparent text-sm border-separate border-spacing-0"
           >
             <colgroup>
               <col className="w-10" />
@@ -680,16 +687,21 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
                 const col = activeCols[i]
                 // wpx = pixels; wch = character units (~7.5px each + padding)
                 const wpx = col?.wpx ?? (col?.wch != null ? Math.round(col.wch * 7.5 + 5) : undefined)
-                return wpx ? <col key={i} style={{ width: `${wpx}px` }} /> : <col key={i} />
+                // box-sizing + min-width so the ORIGINAL column width survives
+                // cell padding — with auto table layout, content + px-3 would
+                // otherwise widen every column beyond the file's own width.
+                return wpx
+                  ? <col key={i} style={{ width: `${wpx}px`, minWidth: `${wpx}px`, boxSizing: 'border-box' }} />
+                  : <col key={i} />
               })}
             </colgroup>
             <thead>
               <tr>
-                <th className="sticky top-0 left-0 z-20 border-t border-l border-b border-r border-border bg-surface-alt" />
+                <th className="sticky top-0 left-0 z-20 border-t border-l border-b border-r border-grid bg-surface-alt" />
                 {Array.from({ length: colCount }, (_, i) => (
                   <th
                     key={i}
-                    className="sticky top-0 z-10 border-t border-b border-r border-border bg-surface-alt px-3 py-1 text-xs font-medium text-text-secondary"
+                    className="sticky top-0 z-10 border-t border-b border-r border-grid bg-surface-alt px-3 py-1 text-xs font-medium text-text-secondary"
                   >
                     {XLSX.utils.encode_col(i)}
                   </th>
@@ -709,7 +721,7 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
                 if (virtualize && (rowIdx < window_.start || rowIdx >= window_.end)) return null
                 return (
                 <tr key={rowIdx} data-vr={virtualize ? rowIdx : undefined}>
-                  <td className="sticky left-0 z-10 border-l border-b border-r border-border bg-surface-alt px-2 py-1 text-center text-xs text-text-secondary">
+                  <td className="sticky left-0 z-10 border-l border-b border-r border-grid bg-surface-alt px-2 py-1 text-center text-xs text-text-secondary">
                     {rowIdx + 1}
                   </td>
                   {Array.from({ length: colCount }, (_, colIdx) => {
@@ -721,7 +733,7 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
                     return (
                       <td
                         key={colIdx}
-                        className={`border-b border-r border-border px-3 py-1.5 text-text whitespace-pre-wrap break-words max-w-[360px] ${
+                        className={`border-b border-r border-grid px-3 py-1.5 text-text whitespace-pre-wrap break-words max-w-[360px] ${
                           rowIdx === 0 ? 'bg-surface-alt font-medium' : ''
                         }`}
                         style={cst ? {
