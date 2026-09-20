@@ -39,12 +39,7 @@ function PaneV3() {
         <div className="sk h-1.5 w-full" />
         <div className="sk h-1.5 w-10/12" />
         <div className="rounded-md border-l-2 border-accent bg-accent/10 px-3 py-2.5">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-medium text-ink">三、交付周期</span>
-            <span className="rounded-sm bg-accent px-1.5 py-px font-mono text-[9px] text-white">
-              已更新
-            </span>
-          </div>
+          <span className="text-[11px] font-medium text-ink">三、交付周期</span>
           <div className="sk mt-2.5 h-1.5 w-full" />
           <div className="sk mt-1.5 h-1.5 w-7/12" />
         </div>
@@ -78,7 +73,7 @@ function SplitDemo() {
   return (
     <div className="select-none">
       <div className="flex items-center justify-between gap-2 border-b border-ink/10 bg-paper-deep/60 px-3 py-2 font-mono text-[11px] text-ink-soft">
-        <span className="truncate">{leftName} · {Math.round(100 - ratio)}%</span>
+        <span className="truncate">{leftName}</span>
         <button
           type="button"
           onClick={() => setSwapped((v) => !v)}
@@ -87,7 +82,7 @@ function SplitDemo() {
           <IconSwap className="h-3.5 w-3.5" />
           交换
         </button>
-        <span className="truncate">{rightName} · {Math.round(ratio)}%</span>
+        <span className="truncate">{rightName}</span>
       </div>
 
       <div ref={track} className="flex h-[280px] md:h-[320px]">

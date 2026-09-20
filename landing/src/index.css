@@ -89,12 +89,28 @@ body {
   background: color-mix(in srgb, var(--color-ink) 10%, transparent);
 }
 
+/* 主图切换标签时的预览淡入 */
+@keyframes pane-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.pane-in {
+  animation: pane-in 0.35s cubic-bezier(0.22, 0.61, 0.21, 1) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
   }
   .animate-rise,
-  .reveal {
+  .reveal,
+  .pane-in {
     animation: none !important;
     transition: none !important;
     opacity: 1 !important;
