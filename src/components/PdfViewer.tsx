@@ -24,6 +24,57 @@ async function resolveDestPage(pdf: pdfjsLib.PDFDocumentProxy, dest: unknown): P
   }
 }
 
+/**
+ * Fallback outline for PDFs WITHOUT a bookmark tree. Print-to-PDF engines
+ * (Skia/Chrome etc.) write chapter link anchors as named destinations but no
+ * /Outlines, so getOutline() is null while the document clearly has chapters.
+ * Each dest name (ch1…) gets its real heading text pulled from the page at
+ * the dest's /XYZ coordinates.
+ */
+async function outlineFromDestinations(pdf: pdfjsLib.PDFDocumentProxy): Promise<OutlineItem[]> {
+  const dests = await pdf.getDestinations()
+  const names = [...dests.keys()].slice(0, 100)
+  const out: OutlineItem[] = []
+  for (const name of names) {
+    const dest = dests.get(name)
+    const page = await resolveDestPage(pdf, dest)
+    let title = name
+    const x = Array.isArray(dest) ? dest[2] : undefined
+    const y = Array.isArray(dest) ? dest[3] : undefined
+    if (page != null && typeof x === 'number' && typeof y === 'number') {
+      try {
+        const p = await pdf.getPage(page)
+        const tc = await p.getTextContent()
+        // Skia's anchor sits well ABOVE the heading glyph box (here ~86pt), so
+        // point-matching finds nothing. Group items into lines and take the
+        // first line at/below the dest point (within a 200pt window).
+        const pts: { str: string; x: number; y: number }[] = []
+        for (const item of tc.items) {
+          if ('str' in item && item.str.trim()) {
+            pts.push({ str: item.str, x: item.transform[4], y: item.transform[5] })
+          }
+        }
+        pts.sort((a, b) => b.y - a.y || a.x - b.x)
+        const lines: { y: number; text: string }[] = []
+        for (const pt of pts) {
+          const last = lines[lines.length - 1]
+          if (last && Math.abs(last.y - pt.y) <= 2) last.text += pt.str
+          else lines.push({ y: pt.y, text: pt.str })
+        }
+        const line = lines.find((l) => l.y <= y + 4 && l.y > y - 200)
+        if (line) {
+          const t = line.text.trim()
+          if (t) title = t.length > 80 ? `${t.slice(0, 80)}…` : t
+        }
+      } catch {
+        // keep the raw dest name
+      }
+    }
+    out.push({ title, page, items: [] })
+  }
+  return out
+}
+
 // Set worker source
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -97,24 +148,29 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
     return () => { cancelled = true }
   }, [url])
 
-  // Load outline (bookmarks) once the document is ready
+  // Load outline (bookmarks) once the document is ready; fall back to named
+  // destinations when the file has no bookmark tree (see outlineFromDestinations)
   useEffect(() => {
     if (!pdf) return
     let cancelled = false
     const load = async () => {
       try {
         const raw = await pdf.getOutline()
-        if (!raw || raw.length === 0 || cancelled) return
-        const walk = async (items: typeof raw): Promise<OutlineItem[]> =>
-          Promise.all(
-            items.map(async (it) => ({
-              title: it.title,
-              page: await resolveDestPage(pdf, it.dest),
-              items: await walk(it.items ?? []),
-            }))
-          )
-        const tree = await walk(raw)
-        if (!cancelled) {
+        let tree: OutlineItem[] = []
+        if (raw && raw.length > 0) {
+          const walk = async (items: typeof raw): Promise<OutlineItem[]> =>
+            Promise.all(
+              items.map(async (it) => ({
+                title: it.title,
+                page: await resolveDestPage(pdf, it.dest),
+                items: await walk(it.items ?? []),
+              }))
+            )
+          tree = await walk(raw)
+        } else {
+          tree = await outlineFromDestinations(pdf).catch(() => [])
+        }
+        if (!cancelled && tree.length > 0) {
           setOutline(tree)
           setShowOutline(true)
         }
@@ -378,6 +434,7 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
   // standalone, the inner one is. Cap the sticky sidebar at the scrollport
   // height minus the toolbar so it stays pinned while pages scroll.
   const [sidebarMaxH, setSidebarMaxH] = useState<number | null>(null)
+  const [toolbarH, setToolbarH] = useState(0)
   useLayoutEffect(() => {
     const root = rootRef.current
     if (!root || !showOutline) return
@@ -385,8 +442,9 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
     const sc = outer ?? containerRef.current
     if (!sc) return
     const update = () => {
-      const toolbarH = toolbarRef.current?.offsetHeight ?? 0
-      setSidebarMaxH(Math.max(120, sc.clientHeight - toolbarH))
+      const h = toolbarRef.current?.offsetHeight ?? 0
+      setToolbarH(h)
+      setSidebarMaxH(Math.max(120, sc.clientHeight - h))
     }
     update()
     const ro = new ResizeObserver(update)
@@ -467,8 +525,10 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
     // scrolling. Inside the app's zoom layer the CSS there forces the scroller
     // to height:auto, so this is a no-op there.
     <div ref={rootRef} className="flex flex-col flex-1 min-h-0">
-      {/* Toolbar */}
-      <div ref={toolbarRef} className="flex items-center justify-center gap-3 py-2 px-4 bg-surface-card border-b border-border shrink-0">
+      {/* Toolbar — sticky: in the app shell the outer .doc-zoom-scroller
+          scrolls the whole viewer, so without pinning the page-jump input
+          would scroll away with the pages */}
+      <div ref={toolbarRef} className="sticky top-0 z-20 flex items-center justify-center gap-3 py-2 px-4 bg-surface-card border-b border-border shrink-0">
         {outline.length > 0 && (
           <>
             <button
@@ -514,8 +574,12 @@ export function PdfViewer({ url, onTextExtracted }: PdfViewerProps) {
       <div className="flex flex-1 min-h-0">
         {showOutline && outline.length > 0 && (
           <div
-            className="pdf-outline w-52 shrink-0 self-start sticky top-0 overflow-y-auto border-r border-border bg-surface-card py-2"
-            style={sidebarMaxH != null ? { maxHeight: sidebarMaxH } : undefined}
+            className="pdf-outline w-52 shrink-0 self-start sticky overflow-y-auto border-r border-border bg-surface-card py-2"
+            style={{
+              // Stick below the (also sticky) toolbar, not at the scrollport top
+              top: toolbarH,
+              ...(sidebarMaxH != null ? { maxHeight: sidebarMaxH } : {}),
+            }}
           >
             {renderOutlineItems(outline, 0)}
           </div>

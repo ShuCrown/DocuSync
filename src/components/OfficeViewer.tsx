@@ -336,7 +336,17 @@ export function OfficeViewer({ file, category, cacheKey, onTextExtracted }: Offi
         const buffer = await file.arrayBuffer()
 
         if (category === 'excel') {
-          const workbook = XLSX.read(buffer, { type: 'array', cellStyles: true })
+          let workbook: XLSX.WorkBook
+          try {
+            workbook = XLSX.read(buffer, { type: 'array', cellStyles: true })
+          } catch (err) {
+            // Some producers (WPS, Sheets exports) ship a theme part without
+            // <a:themeElements>, and SheetJS CE throws on it when cellStyles
+            // is on — retry style-less so the file still previews (only
+            // column widths are lost; cell styles come from xlsxStyles anyway).
+            console.warn('xlsx style-aware read failed, retrying without cellStyles:', err)
+            workbook = XLSX.read(buffer, { type: 'array' })
+          }
           // SheetJS CE drops cell styling — recover bold/color/fill/alignment
           // from styles.xml (see utils/xlsxStyles).
           const cellStyles = await parseXlsxCellStyles(buffer)
